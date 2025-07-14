@@ -14,11 +14,17 @@ class Instruction(BaseModel, ABC):
     def model_validate_stream(cls, stream: BinaryIO, address: NonNegativeInt) -> Self:
         return cls(address=address, next_address=stream.tell())
 
+    def model_dump_stream(self, stream: BinaryIO) -> None:
+        pass
+
 
 class NotImplementedInstruction(Instruction, ABC):
     @classmethod
     def model_validate_stream(cls, stream: BinaryIO, address: NonNegativeInt) -> Self:
         raise NotImplementedError(f"{cls.__name__} is not implemented")
+
+    def model_dump_stream(self, stream: BinaryIO) -> None:
+        raise NotImplementedError(f"{self.__class__.__name__} is not implemented")
 
 
 NOP = type("NOP", (NotImplementedInstruction,), {})
@@ -40,6 +46,9 @@ class StructInstruction(Instruction, ABC):
     def model_validate_stream(cls, stream: BytesIO, address: NonNegativeInt) -> Self:
         value = cls.value_struct.unpack(stream.read(cls.value_struct.size))[0]
         return cls(address=address, next_address=stream.tell(), value=value)
+
+    def model_dump_stream(self, stream: BytesIO) -> None:
+        stream.write(self.value_struct.pack(self.value))
 
 
 class LiteralInstruction(Instruction, ABC):
@@ -126,6 +135,10 @@ class CALL(Instruction):
         value_bytes = stream.read(4 * value_count)
         value = unpack("<" + "i" * value_count, value_bytes)
         return cls(address=address, next_address=stream.tell(), value=list(value))
+
+    def model_dump_stream(self, stream: BinaryIO) -> None:
+        stream.write(Struct("<I").pack(len(self.value)))
+        stream.write(Struct("<" + "i" * len(self.value)).pack(*self.value))
 
 
 POP = type("POP", (Instruction,), {})
@@ -244,4 +257,14 @@ QVM_INSTRUCTION: dict[int, dict[bytes, type[Instruction]]] = {
         b"\x2f": BLK,
         b"\x30": ILLEGAL,
     },
+}
+
+
+QVM_BYTECODE: dict[int, dict[type[Instruction], bytes]] = {
+    QVM_VERSION_5: dict(
+        zip(QVM_INSTRUCTION[QVM_VERSION_5].values(), QVM_INSTRUCTION[QVM_VERSION_5].keys(), strict=False)
+    ),
+    QVM_VERSION_7: dict(
+        zip(QVM_INSTRUCTION[QVM_VERSION_7].values(), QVM_INSTRUCTION[QVM_VERSION_7].keys(), strict=False)
+    ),
 }

@@ -2,7 +2,7 @@ import subprocess
 from functools import singledispatchmethod
 from io import BytesIO
 from pathlib import Path
-from struct import unpack
+from struct import pack, unpack
 from typing import Literal, Self
 
 import typer
@@ -33,13 +33,12 @@ class QVMHeader(BaseModel):
 
     @classmethod
     def model_validate_bytes(cls, data: bytes) -> "QVMHeader":
-        obj_values = unpack("4s14I", data[:60])
+        obj_values = unpack("<4s14I", data[:60])
         obj_mapping = dict(zip(cls.__pydantic_fields__.keys(), obj_values, strict=False))
         obj = cls(**obj_mapping)
 
         if obj.minor_version == 5 and len(data[60:]) > 4:  # noqa: PLR2004
-            footer_offset = unpack("I", data[60:64])[0]
-            obj.footer_data_offset = footer_offset
+            obj.footer_data_offset = unpack("<I", data[60:64])[0]
 
         return obj
 
@@ -111,6 +110,70 @@ class QVM(FileModel):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(self.to_qsc_stream().getvalue())
+
+    def to_qvm_v5_stream(self) -> BytesIO:
+        stream = BytesIO()
+
+        variables_offset: int = 0
+        variables_points: list[int] = []
+
+        for string in self.variables:
+            variables_points.append(variables_offset)
+            variables_offset += len(string) + 1
+
+        variables_points_data = pack(f"<{len(variables_points)}I", *variables_points)
+        variables_data = b"".join([string.encode("latin1") + b"\x00" for string in self.variables])
+
+        strings_offset: int = 0
+        strings_points: list[int] = []
+
+        for string in self.strings:
+            strings_points.append(strings_offset)
+            strings_offset += len(string) + 1
+
+        strings_points_data = pack(f"<{len(strings_points)}I", *strings_points)
+        strings_data = b"".join([string.encode("latin1") + b"\x00" for string in self.strings])
+
+        instructions_data_stream = BytesIO()
+
+        for instruction in self.instructions.values():
+            instructions_data_stream.write(ins.QVM_BYTECODE[ins.QVM_VERSION_5][instruction.__class__])
+            instruction.model_dump_stream(instructions_data_stream)
+
+        instructions_data = instructions_data_stream.getvalue()
+
+        header_data = pack(
+            "<4s14I",
+            b"LOOP",
+            8,
+            5,
+            60,
+            60 + len(variables_points_data),
+            len(variables_points_data),
+            len(variables_data),
+            60 + len(variables_points_data) + len(variables_data),
+            60 + len(variables_points_data) + len(variables_data) + len(strings_points_data),
+            len(strings_points_data),
+            len(strings_data),
+            60 + len(variables_points_data) + len(variables_data) + len(strings_points_data) + len(strings_data),
+            len(instructions_data),
+            0,
+            0,
+        )
+
+        stream.write(header_data)
+        stream.write(variables_points_data)
+        stream.write(variables_data)
+        stream.write(strings_points_data)
+        stream.write(strings_data)
+        stream.write(instructions_data)
+
+        return stream
+
+    def to_qvm_v5_file(self, path: str | Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.to_qvm_v5_stream().getvalue())
 
     def rebuild_stack(self, next_address: int = 0, stop_address: int | None = None) -> qsc.Stack:
         stack = qsc.Stack()
