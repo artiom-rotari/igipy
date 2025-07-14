@@ -1,5 +1,5 @@
 import subprocess
-from functools import singledispatchmethod
+from functools import cached_property, singledispatchmethod
 from io import BytesIO
 from pathlib import Path
 from struct import pack, unpack
@@ -32,73 +32,91 @@ class QVMHeader(BaseModel):
     footer_data_offset: NonNegativeInt | None = None
 
     @classmethod
-    def model_validate_bytes(cls, data: bytes) -> "QVMHeader":
-        obj_values = unpack("<4s14I", data[:60])
-        obj_mapping = dict(zip(cls.__pydantic_fields__.keys(), obj_values, strict=False))
-        obj = cls(**obj_mapping)
+    def from_stream(cls, stream: BytesIO) -> Self:
+        values = unpack("<4s14I", stream.read(60))
+        fields = list(cls.__pydantic_fields__.keys())
+        fields.remove("footer_data_offset")
 
-        if obj.minor_version == 5 and len(data[60:]) > 4:  # noqa: PLR2004
-            obj.footer_data_offset = unpack("<I", data[60:64])[0]
+        dictionary = dict(zip(fields, values, strict=True))
 
-        return obj
+        if dictionary["minor_version"] == 7:
+            dictionary["footer_data_offset"] = unpack("<I", stream.read(4))[0]
 
-    @property
-    def variables_slice(self) -> slice:
-        return slice(self.variables_data_offset, self.variables_data_offset + self.variables_data_size)
+        return cls(**dictionary)
 
-    @property
-    def strings_slice(self) -> slice:
-        return slice(self.strings_data_offset, self.strings_data_offset + self.strings_data_size)
 
-    @property
-    def instructions_slice(self) -> slice:
-        return slice(self.instructions_data_offset, self.instructions_data_offset + self.instructions_data_size)
+class QVMStrings(BaseModel):
+    root: dict[int, str]
+
+    @classmethod
+    def from_stream(
+        cls, stream: BytesIO, table_offset: int, table_length: int, value_offset: int, value_length: int
+    ) -> Self:
+        stream.seek(table_offset)
+        table = unpack(f"<{table_length // 4}I", stream.read(table_length))
+
+        stream.seek(value_offset)
+        value_bytes = stream.read(value_length)
+        value_dirty = [value.decode("utf-8") for value in value_bytes.split(b"\x00")[:-1]]
+        value_clean = [value.replace("\n", "\\n").replace('"', '\\"') for value in value_dirty]
+
+        return cls(root=dict(zip(table, value_clean, strict=True)))
+
+    @cached_property
+    def table_bytes(self) -> bytes:
+        return pack(f"<{len(self.root)}I", *self.root.keys())
+
+    @cached_property
+    def value_bytes(self) -> bytes:
+        value_dirty = [value.replace("\\n", "\n").replace('\\"', '"') for value in self.root.values()]
+        return b"".join([string.encode("utf-8") + b"\x00" for string in value_dirty])
 
 
 class QVM(FileModel):
     header: QVMHeader
-    variables: list[str]
-    strings: list[str]
+    variables_pool: QVMStrings
+    strings_pool: QVMStrings
     instructions: dict[int, ins.Instruction]
 
     @classmethod
     def model_validate_stream(cls, stream: BytesIO) -> Self:
-        return cls.model_validate_bytes(data=stream.read())
+        header = QVMHeader.from_stream(stream)
 
-    @classmethod
-    def model_validate_bytes(cls, data: bytes) -> Self:
-        header = QVMHeader.model_validate_bytes(data=data)
-
-        variables = cls.bytes_to_list_of_strings(data=data[header.variables_slice])
-        strings = cls.bytes_to_list_of_strings(data=data[header.strings_slice])
-
-        instructions = cls.bytes_to_dict_of_instructions(
-            data=data[header.instructions_slice],
-            version=header.minor_version,
+        variables_pool = QVMStrings.from_stream(
+            stream,
+            table_offset=header.variables_points_offset,
+            table_length=header.variables_points_size,
+            value_offset=header.variables_data_offset,
+            value_length=header.variables_data_size,
         )
 
-        return cls(header=header, variables=variables, strings=strings, instructions=instructions)
+        strings_pool = QVMStrings.from_stream(
+            stream,
+            table_offset=header.strings_points_offset,
+            table_length=header.strings_points_size,
+            value_offset=header.strings_data_offset,
+            value_length=header.strings_data_size,
+        )
 
-    @classmethod
-    def bytes_to_list_of_strings(cls, data: bytes) -> list[str]:
-        value_bytes = data.split(b"\x00")[:-1]
-        value_strings = [value.decode("utf-8") for value in value_bytes]
-        value = [value.replace("\n", "\\n").replace('"', '\\"') for value in value_strings]
-        return value  # noqa: RET504
+        instruction_mapping = ins.QVM_INSTRUCTION[header.minor_version]
 
-    @classmethod
-    def bytes_to_dict_of_instructions(cls, data: bytes, version: Literal[5, 7]) -> dict[int, ins.Instruction]:
-        stream = BytesIO(data)
-        result = {}
-        bytecode_to_instruction = ins.QVM_INSTRUCTION[version]
+        stream.seek(header.instructions_data_offset)
+        instruction_stream = BytesIO(stream.read(header.instructions_data_size))
 
-        while stream.tell() < len(data):
-            address = stream.tell()
-            instruction_class = bytecode_to_instruction.get(stream.read(1), ins.NotImplementedInstruction)
-            instruction = instruction_class.model_validate_stream(stream, address)
-            result[instruction.address] = instruction
+        instruction_pool = {}
 
-        return result
+        while instruction_stream.tell() < header.instructions_data_size:
+            address = instruction_stream.tell()
+            instruction_class = instruction_mapping.get(instruction_stream.read(1), ins.NotImplementedInstruction)
+            instruction = instruction_class.model_validate_stream(instruction_stream, address)
+            instruction_pool[instruction.address] = instruction
+
+        return cls(
+            header=header,
+            variables_pool=variables_pool,
+            strings_pool=strings_pool,
+            instructions=instruction_pool,
+        )
 
     def to_qsc(self) -> qsc.QSC:
         return qsc.QSC(content=self.rebuild_block())
@@ -114,25 +132,10 @@ class QVM(FileModel):
     def to_qvm_v5_stream(self) -> BytesIO:
         stream = BytesIO()
 
-        variables_offset: int = 0
-        variables_points: list[int] = []
-
-        for string in self.variables:
-            variables_points.append(variables_offset)
-            variables_offset += len(string) + 1
-
-        variables_points_data = pack(f"<{len(variables_points)}I", *variables_points)
-        variables_data = b"".join([string.encode("latin1") + b"\x00" for string in self.variables])
-
-        strings_offset: int = 0
-        strings_points: list[int] = []
-
-        for string in self.strings:
-            strings_points.append(strings_offset)
-            strings_offset += len(string) + 1
-
-        strings_points_data = pack(f"<{len(strings_points)}I", *strings_points)
-        strings_data = b"".join([string.encode("latin1") + b"\x00" for string in self.strings])
+        variables_table = self.variables_pool.table_bytes
+        variables_value = self.variables_pool.value_bytes
+        strings_table = self.strings_pool.table_bytes
+        strings_value = self.strings_pool.value_bytes
 
         instructions_data_stream = BytesIO()
 
@@ -142,30 +145,33 @@ class QVM(FileModel):
 
         instructions_data = instructions_data_stream.getvalue()
 
-        header_data = pack(
-            "<4s14I",
-            b"LOOP",
-            8,
-            5,
-            60,
-            60 + len(variables_points_data),
-            len(variables_points_data),
-            len(variables_data),
-            60 + len(variables_points_data) + len(variables_data),
-            60 + len(variables_points_data) + len(variables_data) + len(strings_points_data),
-            len(strings_points_data),
-            len(strings_data),
-            60 + len(variables_points_data) + len(variables_data) + len(strings_points_data) + len(strings_data),
-            len(instructions_data),
-            0,
-            0,
-        )
+        header_dict = {
+            "signature": b"LOOP",
+            "major_version": 8,
+            "minor_version": 5,
+            "variables_points_offset": 60,
+            "variables_data_offset": 60 + len(variables_table),
+            "variables_points_size": len(variables_table),
+            "variables_data_size": len(variables_value),
+            "strings_points_offset": 60 + len(variables_table) + len(variables_value),
+            "strings_data_offset": 60 + len(variables_table) + len(variables_value) + len(strings_table),
+            "strings_points_size": len(strings_table),
+            "strings_data_size": len(strings_value),
+            "instructions_data_offset": (
+                60 + len(variables_table) + len(variables_value) + len(strings_table) + len(strings_value)
+            ),
+            "instructions_data_size": len(instructions_data),
+            "unknown_1": 0,
+            "unknown_2": 0,
+        }
+
+        header_data = pack("<4s14I", *list(header_dict.values()))
 
         stream.write(header_data)
-        stream.write(variables_points_data)
-        stream.write(variables_data)
-        stream.write(strings_points_data)
-        stream.write(strings_data)
+        stream.write(variables_table)
+        stream.write(variables_value)
+        stream.write(strings_table)
+        stream.write(strings_value)
         stream.write(instructions_data)
 
         return stream
@@ -174,6 +180,14 @@ class QVM(FileModel):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(self.to_qvm_v5_stream().getvalue())
+
+    @cached_property
+    def variables(self) -> list[str]:
+        return list(self.variables_pool.root.values())
+
+    @cached_property
+    def strings(self) -> list[str]:
+        return list(self.strings_pool.root.values())
 
     def rebuild_stack(self, next_address: int = 0, stop_address: int | None = None) -> qsc.Stack:
         stack = qsc.Stack()
@@ -314,8 +328,8 @@ class QVM(FileModel):
 
             qvm_model = cls.model_validate_file(src_path)
 
-            decoded_path.parent.mkdir(parents=True, exist_ok=True)
-            decoded_path.write_bytes(qvm_model.model_dump_stream()[0].getvalue())
+            qsc_model = qvm_model.to_qsc()
+            qsc_model.to_file(decoded_path)
             typer.secho(f"Created {decoded_path.as_posix()}", fg=typer.colors.GREEN)
 
             encode_qsc_model.content.statements.append(
@@ -329,7 +343,7 @@ class QVM(FileModel):
                 )
             )
 
-        encode_qsc_path = cls.get_decode_qsc_path(config)
+        encode_qsc_path = cls.get_encode_qsc_path(config)
         encode_qsc_model.to_file(encode_qsc_path)
         typer.secho(f"QSC script saved: {encode_qsc_path.as_posix()}", fg=typer.colors.YELLOW)
 
@@ -341,16 +355,24 @@ class QVM(FileModel):
         if not encode_qsc_path.is_file(follow_symlinks=False):
             typer.secho(f"File not found: {encode_qsc_path.as_posix()}", fg=typer.colors.RED)
 
-        subprocess.run(
+        result = subprocess.run(
             [config.gconv.absolute().as_posix(), encode_qsc_path.relative_to(config.work_dir).as_posix()],
             cwd=config.work_dir.absolute().as_posix(),
             check=False,
         )
 
+        if result.returncode != 0:
+            typer.secho(f"Error while running gconv: {result.stderr}", fg=typer.colors.RED)
+            raise typer.Exit(code=result.returncode)
+
         for src_path in config.decoded_dir.glob("**/*.qvm"):
             dst_path = config.build_dir / src_path.relative_to(config.decoded_dir)
-            dst_path.parent.mkdir(parents=True, exist_ok=True)
-            src_path.replace(dst_path)
+            qvm_v7_model = cls.model_validate_file(src_path)
+            qvm_v7_model.to_qvm_v5_file(dst_path)
+            typer.secho(f"Created {dst_path.as_posix()}", fg=typer.colors.GREEN)
+
+            src_path.unlink()
+            typer.secho(f"Deleted {src_path.as_posix()}", fg=typer.colors.YELLOW)
 
     @classmethod
     def get_encode_qsc_path(cls, config: GameConfig) -> Path:

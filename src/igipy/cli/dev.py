@@ -79,9 +79,8 @@ def compare(ctx: typer.Context, pattern: str = "invalid-pattern") -> None:
     for initial_path in ctx.obj.igi1.game_dir.glob(pattern):
         encoded_path = ctx.obj.igi1.build_dir / initial_path.relative_to(ctx.obj.igi1.game_dir)
 
-        typer.secho(f"Initial: {initial_path.absolute().as_posix()}", fg="green")
-
         if not encoded_path.is_file():
+            typer.secho(f"Initial: {initial_path.absolute().as_posix()}", fg="green")
             typer.secho(f"Encoded: doesn't exists {encoded_path.absolute().as_posix()}", fg="yellow")
             continue
 
@@ -89,8 +88,10 @@ def compare(ctx: typer.Context, pattern: str = "invalid-pattern") -> None:
         encoded_data = encoded_path.read_bytes()
 
         if initial_data != encoded_data:
+            typer.secho(f"Initial: {initial_path.absolute().as_posix()}", fg="green")
             typer.secho(f"Encoded: doesn't match {encoded_path.absolute().as_posix()}", fg="red")
         else:
+            typer.secho(f"Initial: {initial_path.absolute().as_posix()}", fg="green")
             typer.secho(f"Encoded: matches {encoded_path.absolute().as_posix()}", fg="green")
 
 
