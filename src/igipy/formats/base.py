@@ -21,7 +21,7 @@ class FileModel(BaseModel, ABC):
 
     @classmethod
     @abstractmethod
-    def cli_decode_all(cls, config: GameConfig, pattern: str) -> None: ...
+    def cli_decode_all(cls, config: GameConfig, patterns: list[str] | None = None, **kwargs) -> None: ...
 
     @classmethod
     @abstractmethod

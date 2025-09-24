@@ -62,41 +62,44 @@ class WAV(base.FileModel):
         path.write_bytes(self.to_wav_stream().getvalue())
 
     @classmethod
-    def cli_decode_all(cls, config: GameConfig, pattern: str = "**/*.wav") -> None:
+    def cli_decode_all(cls, config: GameConfig, patterns: list[str] | None = None, **kwargs) -> None:
+        patterns = patterns or ["**/*.wav"]
+
         encode_qsc_model = qsc.QSC(content=qsc.BlockStatement(statements=[]))
 
-        for src_path, src_dir, decoded_dir, encoded_dir in chain(
-            (
-                (src_path, config.game_dir, config.decoded_dir, config.build_dir)
-                for src_path in config.game_dir.glob(pattern)
-                if src_path.is_file(follow_symlinks=False)
-            ),
-            (
-                (src_path, config.extracted_dir, config.decoded_dir, config.extracted_dir)
-                for src_path in config.extracted_dir.glob(pattern)
-                if src_path.is_file(follow_symlinks=False)
-            ),
-        ):
-            decoded_path = decoded_dir / src_path.relative_to(src_dir)
-            encoded_path = encoded_dir / src_path.relative_to(src_dir)
+        for pattern in patterns:
+            for src_path, src_dir, decoded_dir, encoded_dir in chain(
+                (
+                    (src_path, config.game_dir, config.decoded_dir, config.build_dir)
+                    for src_path in config.game_dir.glob(pattern)
+                    if src_path.is_file(follow_symlinks=False)
+                ),
+                (
+                    (src_path, config.extracted_dir, config.decoded_dir, config.extracted_dir)
+                    for src_path in config.extracted_dir.glob(pattern)
+                    if src_path.is_file(follow_symlinks=False)
+                ),
+            ):
+                decoded_path = decoded_dir / src_path.relative_to(src_dir)
+                encoded_path = encoded_dir / src_path.relative_to(src_dir)
 
-            wav_model = cls.model_validate_file(src_path)
+                wav_model = cls.model_validate_file(src_path)
 
-            wav_model.to_wav_file(decoded_path)
-            typer.secho(f"Created: {decoded_path.as_posix()}", fg=typer.colors.GREEN)
+                wav_model.to_wav_file(decoded_path)
+                typer.secho(f"Created: {decoded_path.as_posix()}", fg=typer.colors.GREEN)
 
-            encode_qsc_model.content.statements.append(
-                qsc.ExprStatement(
-                    expression=qsc.Call(
-                        function="ConvertSoundFile",
-                        arguments=[
-                            qsc.Literal(value=decoded_path.relative_to(config.work_dir).as_posix()),
-                            qsc.Literal(value=encoded_path.relative_to(config.work_dir).as_posix()),
-                            qsc.Literal(value=wav_model.header.sound_pack),
-                        ],
+                encode_qsc_model.content.statements.append(
+                    qsc.ExprStatement(
+                        expression=qsc.Call(
+                            function="ConvertSoundFile",
+                            arguments=[
+                                qsc.Literal(value=decoded_path.relative_to(config.work_dir).as_posix()),
+                                qsc.Literal(value=encoded_path.relative_to(config.work_dir).as_posix()),
+                                qsc.Literal(value=wav_model.header.sound_pack),
+                            ],
+                        )
                     )
                 )
-            )
 
         encode_qsc_path = cls.get_encode_qsc_path(config)
         encode_qsc_model.to_file(encode_qsc_path)

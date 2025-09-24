@@ -317,31 +317,34 @@ class QVM(FileModel):
         return next_address
 
     @classmethod
-    def cli_decode_all(cls, config: GameConfig, pattern: str = "**/*.qvm") -> None:
+    def cli_decode_all(cls, config: GameConfig, patterns: list[str] | None = None, **kwargs) -> None:
+        patterns = patterns or ["**/*.qvm"]
+
         encode_qsc_model = qsc.QSC(content=qsc.BlockStatement(statements=[]))
 
-        for src_path in config.game_dir.glob(pattern):
-            if not src_path.is_file(follow_symlinks=False):
-                continue
+        for pattern in patterns:
+            for src_path in config.game_dir.glob(pattern):
+                if not src_path.is_file(follow_symlinks=False):
+                    continue
 
-            decoded_path = config.decoded_dir / src_path.relative_to(config.game_dir).with_suffix(".qsc")
+                decoded_path = config.decoded_dir / src_path.relative_to(config.game_dir).with_suffix(".qsc")
 
-            qvm_model = cls.model_validate_file(src_path)
+                qvm_model = cls.model_validate_file(src_path)
 
-            qsc_model = qvm_model.to_qsc()
-            qsc_model.to_file(decoded_path)
-            typer.secho(f"Created {decoded_path.as_posix()}", fg=typer.colors.GREEN)
+                qsc_model = qvm_model.to_qsc()
+                qsc_model.to_file(decoded_path)
+                typer.secho(f"Created {decoded_path.as_posix()}", fg=typer.colors.GREEN)
 
-            encode_qsc_model.content.statements.append(
-                qsc.ExprStatement(
-                    expression=qsc.Call(
-                        function="CompileScript",
-                        arguments=[
-                            qsc.Literal(value=decoded_path.relative_to(config.work_dir).as_posix()),
-                        ],
+                encode_qsc_model.content.statements.append(
+                    qsc.ExprStatement(
+                        expression=qsc.Call(
+                            function="CompileScript",
+                            arguments=[
+                                qsc.Literal(value=decoded_path.relative_to(config.work_dir).as_posix()),
+                            ],
+                        )
                     )
                 )
-            )
 
         encode_qsc_path = cls.get_encode_qsc_path(config)
         encode_qsc_model.to_file(encode_qsc_path)

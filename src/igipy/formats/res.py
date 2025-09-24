@@ -80,86 +80,89 @@ class RES(ilff.ILFF):
         )
 
     @classmethod
-    def cli_decode_all(cls, config: GameConfig, pattern: str = "**/*.res") -> None:
+    def cli_decode_all(cls, config: GameConfig, patterns: list[str] | None = None, **kwargs) -> None:
+        patterns = patterns or ["**/*.res"]
+
         encode_qsc_model = qsc.QSC(content=qsc.BlockStatement(statements=[]))
 
-        for res_path in config.game_dir.glob(pattern):
-            dir_path = config.extracted_dir / res_path.relative_to(config.game_dir)
-            dir_path.mkdir(parents=True, exist_ok=True)
-            dst_path = config.build_dir / res_path.relative_to(config.game_dir)
+        for pattern in patterns:
+            for res_path in config.game_dir.glob(pattern):
+                dir_path = config.extracted_dir / res_path.relative_to(config.game_dir)
+                dir_path.mkdir(parents=True, exist_ok=True)
+                dst_path = config.build_dir / res_path.relative_to(config.game_dir)
 
-            typer.secho(f"Extracting: {res_path.as_posix()}", fg=typer.colors.YELLOW)
-            res_model = cls.model_validate_file(res_path)
+                typer.secho(f"Extracting: {res_path.as_posix()}", fg=typer.colors.YELLOW)
+                res_model = cls.model_validate_file(res_path)
 
-            encode_qsc_model.content.statements.append(
-                qsc.ExprStatement(
-                    expression=qsc.Call(
-                        function="BeginResource",
-                        arguments=[
-                            qsc.Literal(value=dst_path.relative_to(config.work_dir).as_posix()),
-                        ],
-                    ),
-                ),
-            )
-
-            for chunk_a, chunk_b in res_model.content_pairs:
-                if isinstance(chunk_b, CSTRChunk):
-                    encode_qsc_model.content.statements.append(
-                        qsc.ExprStatement(
-                            expression=qsc.Call(
-                                function="AddStringResource",
-                                arguments=[
-                                    qsc.Literal(value=chunk_a.get_cleaned_content()),
-                                    qsc.Literal(value=chunk_b.get_cleaned_content()),
-                                ],
-                            ),
-                        ),
-                    )
-
-                    continue
-
-                if isinstance(chunk_b, BODYChunk):
-                    content_path = dir_path.joinpath(chunk_a.get_cleaned_content().removeprefix("LOCAL:"))
-                    content_path.parent.mkdir(parents=True, exist_ok=True)
-                    content_path.write_bytes(chunk_b.content)
-
-                    typer.secho(f"Extracted: {content_path.as_posix()}", fg=typer.colors.GREEN)
-
-                    encode_qsc_model.content.statements.append(
-                        qsc.ExprStatement(
-                            expression=qsc.Call(
-                                function="AddResource",
-                                arguments=[
-                                    qsc.Literal(value=content_path.relative_to(config.work_dir).as_posix()),
-                                    qsc.Literal(value=chunk_a.get_cleaned_content()),
-                                    qsc.Literal(value=chunk_b.header.alignment),
-                                ],
-                            ),
-                        ),
-                    )
-
-                    continue
-
-            if res_model.content_paths:
                 encode_qsc_model.content.statements.append(
                     qsc.ExprStatement(
                         expression=qsc.Call(
-                            function="AddDirectoryResource",
+                            function="BeginResource",
                             arguments=[
-                                qsc.Literal(value=res_model.content_paths[0].get_cleaned_content()),
+                                qsc.Literal(value=dst_path.relative_to(config.work_dir).as_posix()),
                             ],
                         ),
-                    )
+                    ),
                 )
 
-            encode_qsc_model.content.statements.append(
-                qsc.ExprStatement(
-                    expression=qsc.Call(
-                        function="EndResource",
-                        arguments=[],
+                for chunk_a, chunk_b in res_model.content_pairs:
+                    if isinstance(chunk_b, CSTRChunk):
+                        encode_qsc_model.content.statements.append(
+                            qsc.ExprStatement(
+                                expression=qsc.Call(
+                                    function="AddStringResource",
+                                    arguments=[
+                                        qsc.Literal(value=chunk_a.get_cleaned_content()),
+                                        qsc.Literal(value=chunk_b.get_cleaned_content()),
+                                    ],
+                                ),
+                            ),
+                        )
+
+                        continue
+
+                    if isinstance(chunk_b, BODYChunk):
+                        content_path = dir_path.joinpath(chunk_a.get_cleaned_content().removeprefix("LOCAL:"))
+                        content_path.parent.mkdir(parents=True, exist_ok=True)
+                        content_path.write_bytes(chunk_b.content)
+
+                        typer.secho(f"Extracted: {content_path.as_posix()}", fg=typer.colors.GREEN)
+
+                        encode_qsc_model.content.statements.append(
+                            qsc.ExprStatement(
+                                expression=qsc.Call(
+                                    function="AddResource",
+                                    arguments=[
+                                        qsc.Literal(value=content_path.relative_to(config.work_dir).as_posix()),
+                                        qsc.Literal(value=chunk_a.get_cleaned_content()),
+                                        qsc.Literal(value=chunk_b.header.alignment),
+                                    ],
+                                ),
+                            ),
+                        )
+
+                        continue
+
+                if res_model.content_paths:
+                    encode_qsc_model.content.statements.append(
+                        qsc.ExprStatement(
+                            expression=qsc.Call(
+                                function="AddDirectoryResource",
+                                arguments=[
+                                    qsc.Literal(value=res_model.content_paths[0].get_cleaned_content()),
+                                ],
+                            ),
+                        )
+                    )
+
+                encode_qsc_model.content.statements.append(
+                    qsc.ExprStatement(
+                        expression=qsc.Call(
+                            function="EndResource",
+                            arguments=[],
+                        ),
                     ),
-                ),
-            )
+                )
 
         encode_qsc_path = cls.get_encode_qsc_path(config)
         encode_qsc_model.to_file(encode_qsc_path)

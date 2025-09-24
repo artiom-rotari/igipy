@@ -117,7 +117,7 @@ def dump_resources(ctx: typer.Context):
         qsc_model.to_file(qsc_path)
 
         result = subprocess.run(
-            [ctx.obj.igi1.gconv_path.absolute().as_posix(), qsc_path.absolute().as_posix()],
+            args=[ctx.obj.igi1.gconv_path.absolute().as_posix(), qsc_path.absolute().as_posix()],
             cwd=encoded_path.parent.absolute().as_posix(),
             stdout=subprocess.PIPE,
             check=False,
