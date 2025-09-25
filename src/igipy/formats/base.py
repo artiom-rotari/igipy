@@ -19,6 +19,8 @@ class FileModel(BaseModel, ABC):
     def model_validate_file(cls, path: Path | str) -> Self:
         return cls.model_validate_stream(BytesIO(Path(path).read_bytes()))
 
+
+class CLIFileModel(FileModel, ABC):
     @classmethod
     @abstractmethod
     def cli_decode_all(cls, config: GameConfig, patterns: list[str] | None = None, **kwargs) -> None: ...

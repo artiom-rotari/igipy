@@ -26,7 +26,7 @@ class WAVHeader(base.StructModel):
     sample_count: NonNegativeInt
 
 
-class WAV(base.FileModel):
+class WAV(base.CLIFileModel):
     header: WAVHeader
     content: bytes
 

@@ -9,7 +9,8 @@ import typer
 from pydantic import BaseModel, NonNegativeInt
 
 from igipy.config import GameConfig
-from igipy.formats import FileModel, qsc
+from igipy.formats import qsc
+from igipy.formats.base import CLIFileModel
 from igipy.formats.utils import ins
 
 
@@ -72,7 +73,7 @@ class QVMStrings(BaseModel):
         return b"".join([string.encode("utf-8") + b"\x00" for string in value_dirty])
 
 
-class QVM(FileModel):
+class QVM(CLIFileModel):
     header: QVMHeader
     variables_pool: QVMStrings
     strings_pool: QVMStrings

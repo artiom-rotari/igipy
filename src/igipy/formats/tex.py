@@ -5,6 +5,7 @@ from typing import ClassVar, Literal, Self, Union
 import numpy as np
 from pydantic import BaseModel, NonNegativeInt
 
+from ..config import GameConfig
 from . import base
 from .tga import TGA
 
@@ -14,7 +15,7 @@ TEX_VERSION_09 = 9
 TEX_VERSION_11 = 11
 
 
-class TEX(base.FileModel):
+class TEX(base.CLIFileModel):
     variant: Union["TEX02", "TEX07", "TEX09", "TEX11"]
 
     @classmethod
@@ -57,6 +58,14 @@ class TEX(base.FileModel):
         if isinstance(self.variant, TEX11):
             return self.variant.content
         raise ValueError(f"Unsupported variant: {self.variant}")
+
+    @classmethod
+    def cli_decode_all(cls, config: GameConfig, patterns: list[str] | None = None, **kwargs) -> None:
+        raise NotImplementedError
+
+    @classmethod
+    def cli_encode_all(cls, config: GameConfig, **kwargs) -> None:
+        raise NotImplementedError
 
 
 class TEX02(BaseModel):

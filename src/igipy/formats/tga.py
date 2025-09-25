@@ -87,6 +87,10 @@ class TGA(FileModel):
         return stream, ".tga"
 
     @classmethod
+    def model_validate_stream(cls, stream: BytesIO) -> Self:
+        raise NotImplementedError
+
+    @classmethod
     def from_raw_bytes(  # noqa: PLR0913
         cls,
         width: int,

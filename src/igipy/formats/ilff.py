@@ -5,7 +5,7 @@ from typing import ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, NonNegativeInt
 
-from igipy.formats.base import FileModel, StructModel
+from igipy.formats.base import CLIFileModel, StructModel
 
 
 class ChunkHeader(StructModel):
@@ -60,7 +60,7 @@ class ILFFHeader(ChunkHeader):
     fourcc: Literal[b"ILFF"] = Field(description="Chunk signature")
 
 
-class ILFF(FileModel, ABC):
+class ILFF(CLIFileModel, ABC):
     chunk_mapping: ClassVar[dict[bytes, type[Chunk]]] = {}
 
     header: ILFFHeader
