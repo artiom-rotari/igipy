@@ -69,7 +69,9 @@ class RES(ilff.ILFF):
             raise ValueError(f"Unknown content type: {content_type}")
 
         content_pairs = list(zip(chunks[::2], chunks[1::2], strict=True))
-        content_paths = content_pairs.pop(-1) if content_pairs[-1][1].header.fourcc == b"PATH" else None
+        content_paths = (
+            content_pairs.pop(-1) if content_pairs and content_pairs[-1][1].header.fourcc == b"PATH" else None
+        )
 
         # noinspection PyTypeChecker
         return cls(

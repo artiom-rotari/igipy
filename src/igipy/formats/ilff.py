@@ -73,7 +73,7 @@ class ILFF(CLIFileModel, ABC):
         content = []
         header.model_validate_padding(stream)
 
-        while True:
+        while stream.tell() < header.length:
             chunk_position_start = stream.tell()
             chunk_header = ChunkHeader.model_validate_stream(stream=stream)
             chunk = cls.model_validate_chunk(stream, chunk_header)

@@ -7,8 +7,8 @@ JsonPrettyPath = Annotated[Path, PlainSerializer(lambda value: value.as_posix(),
 
 
 class GameConfig(BaseModel):
-    game_dir: JsonPrettyPath = Path("C:/Games/ProjectIGI")
-    work_dir: JsonPrettyPath = Path.cwd()
+    game_dir: JsonPrettyPath
+    work_dir: JsonPrettyPath
 
     @property
     def gconv(self) -> Path:
@@ -31,8 +31,20 @@ class GameConfig(BaseModel):
         return self.work_dir / "extracted"
 
 
+class IGI1Config(GameConfig):
+    game_dir: JsonPrettyPath = Path("C:/Games/ProjectIGI")
+    work_dir: JsonPrettyPath = Path.cwd() / "igi1"
+
+
+class IGI2Config(GameConfig):
+    game_dir: JsonPrettyPath = Path("C:/Program Files (x86)/GOG Galaxy/Games/IGI 2 - Covert Strike")
+    work_dir: JsonPrettyPath = Path.cwd() / "igi2"
+
+
 class Config(BaseModel):
-    igi1: GameConfig = Field(default_factory=GameConfig)
+    debug: bool = False
+    igi1: IGI1Config = Field(default_factory=IGI1Config)
+    igi2: IGI2Config = Field(default_factory=IGI2Config)
 
     @classmethod
     def model_validate_file(cls, path: Path = None) -> Self:

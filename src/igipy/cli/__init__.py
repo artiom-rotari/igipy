@@ -6,12 +6,14 @@ from pydantic import ValidationError
 from igipy import __version__
 from igipy.cli.dev import dev_app
 from igipy.cli.igi1 import igi1_app
+from igipy.cli.igi2 import igi2_app
 from igipy.config import Config
 
 app = typer.Typer(add_completion=False)
 
 app.add_typer(dev_app, name="dev", short_help="Development tools")
 app.add_typer(igi1_app, name="igi1", short_help="Convertors for IGI 1 game")
+app.add_typer(igi2_app, name="igi2", short_help="Convertors for IGI 2 game")
 
 
 @app.callback(invoke_without_command=True)
