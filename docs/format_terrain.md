@@ -1,4 +1,4 @@
-[← TLM Format](format_tlm.md) · [Back to README.md](../README.md#supported-game-file-formats) · [Forest DAT →](format_forest_dat.md)
+[Back to README](../README.md)
 
 # Terrain System Overview
 

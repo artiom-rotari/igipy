@@ -1,4 +1,4 @@
-[← IFF Format](format_iff.md) · [Back to README.md](../README.md#supported-game-file-formats) · [objects.qsc →](format_objects_qsc.md)
+[Back to README](../README.md)
 
 # MEF Format — 3D Mesh Model
 

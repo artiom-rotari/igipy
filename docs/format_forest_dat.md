@@ -1,4 +1,4 @@
-[← Terrain System](format_terrain.md) · [Back to README.md](../README.md#supported-game-file-formats) · [Graph DAT →](format_graph_dat.md)
+[Back to README](../README.md)
 
 # Forest DAT Format
 

@@ -1,4 +1,4 @@
-[← Game Structure](game_structure.md) · [Back to README.md](../README.md#supported-game-file-formats) · [QVM Format →](format_qvm.md)
+[Back to README](../README.md)
 
 # File Extensions
 
@@ -15,7 +15,7 @@ Full inventory of file types found in IGI2 game data, with current conversion st
 | .mp3              | 615   | Copy as is                     |
 | .dat (forest)     | 109   | Can be converted to json       |
 | .dat (graph)      | 182   | Can be converted to json       |
-| .dat (graphcover) | 138   | Must create converter          |
+| .dat (graphcover) | 138   | Can be converted to json       |
 | .syn              | 369   | Can be converted to json       |
 | .spr              | 257   | Can be converted to tga        |
 | .bmp              | 192   | Copy as is                     |

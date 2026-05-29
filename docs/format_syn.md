@@ -1,4 +1,4 @@
-[← Graphcover DAT](format_graphcover_dat.md) · [Back to README.md](../README.md#supported-game-file-formats) · [IFF Format →](format_iff.md)
+[Back to README](../README.md)
 
 # SYN Format — Lip-Sync Envelope
 

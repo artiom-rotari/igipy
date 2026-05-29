@@ -1,4 +1,4 @@
-[← File Extensions](extensions.md) · [Back to README.md](../README.md#supported-game-file-formats) · [FNT Format →](format_fnt.md)
+[Back to README](../README.md)
 
 # QVM Format — Quest Virtual Machine Bytecode
 

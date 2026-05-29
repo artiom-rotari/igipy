@@ -1,4 +1,4 @@
-[← TMM Format](format_tmm.md) · [Back to README.md](../README.md#supported-game-file-formats) · [Terrain System →](format_terrain.md)
+[Back to README](../README.md)
 
 # TLM Format — Terrain Light Map
 

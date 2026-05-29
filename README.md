@@ -1,49 +1,26 @@
-# IGI Tools
+# igipy
 
-**igipy** is a Python CLI tool for converting game files from *Project I.G.I: I'm Going In* (IGI 1) into standard, widely supported formats. It is a direct successor and refactor of the tool published at [https://github.com/NEWME0/Project-IGI/](https://github.com/NEWME0/Project-IGI/).
+> Reverse engineering tools for *Project I.G.I* and *Project I.G.I 2: Covert Strike* game files.
 
-## Features
-
-* Convert `.res` files to `.zip` or `.json` (depending on whether it's an archive or translation file)
-* Convert `.qvm` files to `.qsc`
-* Convert `.wav` files to standard Waveform `.wav` including ADPCM-encoded sound files.
-* Convert `.tex`, `.spr`, and `.pic` files to `.tga`
+**igipy** is a Python CLI tool for converting proprietary game file formats from IGI 1 and IGI 2 into standard, open formats. It is a direct successor and refactor of the tool published at [https://github.com/NEWME0/Project-IGI/](https://github.com/NEWME0/Project-IGI/).
 
 ## Installation
 
 Requires **Python 3.13**.
 
-To install:
-
 ```bash
-python -m pip install --upgrade igipy
+pip install --upgrade igipy
 ```
 
-## Quickstart
+## Quick Start
 
-1. Create a folder where you want to extract or convert game files.
-
-2. Open PowerShell (or terminal) and verify the installation:
+1. Create a working directory and run `igipy` to generate the configuration file:
 
    ```bash
-   python -m igipy --version
+   igipy
    ```
 
-   You should see output like `Version: 0.2.1` or higher.
-
-3. To see available modules:
-
-   ```bash
-   python -m igipy --help
-   ```
-
-4. Generate the configuration file:
-
-   ```bash
-   python -m igipy
-   ```
-
-   This will create `igipy.json` in the current directory. Open it and set the `"source_dir"` to your IGI 1 installation path, for example:
+2. Edit `igipy.json` — set `source_dir` to your game installation path:
 
    ```json
    {
@@ -55,54 +32,45 @@ python -m pip install --upgrade igipy
    }
    ```
 
-5. Verify configuration:
+3. Convert all supported formats at once:
 
    ```bash
-   python -m igipy
+   igipy igi1 convert-all
    ```
 
-   If everything is configured correctly, you should see no warnings below the help message.
+## Key Features
 
-## User Guide
+- **IGI 1:** Convert `.res` archives, `.qvm` scripts, `.wav` audio (ADPCM), `.tex`/`.spr`/`.pic` textures
+- **IGI 2:** ZIP-based pipeline — collect game files, then batch-convert all supported formats
+- **Formats:** `.res` → `.zip`/`.json`, `.qvm` → `.qsc`, `.wav` → standard `.wav`, `.tex` → `.tga`, `.thm`/`.tmm`/`.tlm` → `.tga`, `.fnt` → BMFont, `.syn` → `.json`, `.dat` (forest/graph/graphcover) → `.json`
 
-### Extract IGI 1 `.res` Files
+## Usage
 
-```bash
-python -m igipy igi1 convert-all-res
-```
-
-* Converts archive `.res` files to `.zip` (in `unpack_dir`)
-* Converts text `.res` files to `.json` (in `target_dir`)
-
-### Convert IGI 1 `.wav` Files
+### IGI 1
 
 ```bash
-python -m igipy igi1 convert-all-wav
+igipy igi1 convert-all          # Convert all supported formats
+igipy igi1 convert-all-res      # .res → .zip/.json
+igipy igi1 convert-all-wav      # .wav → standard .wav
+igipy igi1 convert-all-qvm      # .qvm → .qsc
+igipy igi1 convert-all-tex      # .tex/.spr/.pic → .tga
 ```
 
-Converts all `.wav` files (from `source_dir` and `.zip` archives) to standard `.wav` in `target_dir`.
-
-### Convert IGI 1 `.qvm` Files
+### IGI 2
 
 ```bash
-python -m igipy igi1 convert-all-qvm
+igipy igi2 zip-collect           # Collect game files into a single zip
+igipy igi2 zip-convert-all       # Convert all formats in the collected zip
+igipy igi2 convert-all-res       # .res → .zip/.json (directory-based)
 ```
 
-Converts `.qvm` files in `source_dir` to `.qsc` format in `target_dir`.
-
-### Convert IGI 1 `.tex`, `.spr`, and `.pic` Files
-
-```bash
-python -m igipy igi1 convert-all-tex
-```
-
-Converts `.tex`, `.spr`, and `.pic` files (from `source_dir` and archives) to `.tga` in `target_dir`.
+All commands support `--dry` flag for preview without writing files.
 
 ## Documentation
 
 | Guide | Description |
 |-------|-------------|
-| [Game Structure](docs/game_structure.md) | IGI2 directory layout, mission numbering, QSC script types |
+| [Game Structure](docs/game_structure.md) | IGI 2 directory layout, mission numbering, QSC script types |
 | [File Extensions](docs/extensions.md) | Full file type inventory with conversion status |
 | [QVM Format](docs/format_qvm.md) | Bytecode script format |
 | [FNT Format](docs/format_fnt.md) | Bitmap font format |
@@ -114,6 +82,7 @@ Converts `.tex`, `.spr`, and `.pic` files (from `source_dir` and archives) to `.
 | [IFF Format](docs/format_iff.md) | Skeletal animation format |
 | [MEF Format](docs/format_mef.md) | 3D mesh model format |
 | [objects.qsc](docs/format_objects_qsc.md) | Level scene graph — all 88 object type declarations |
+| [Model Naming](docs/model_naming.md) | MEF model filename convention and category prefixes |
 
 ## Supported Game File Formats
 
@@ -121,27 +90,20 @@ Below is a summary of the file formats in *Project I.G.I*, including their locat
 
 | Extension       | Total           | Source          | Unpack          | Support         |
 |-----------------|-----------------|-----------------|-----------------|-----------------|
-| `.olm`          | 25337           | 0               | 25337           | 📆 Not now      |
-| `.tex`          | 7225            | 26              | 7199            | ✅ Yes           |
-| `.mef`          | 6794            | 0               | 6794            | 📆 Not now      |
-| `.qvm`          | 997             | 997             | 0               | ✅ Yes           |
-| `.wav`          | 740             | 394             | 346             | ✅ Yes           |
-| `.dat` (graph)  | 300             | 300             | 0               | ✅ Yes           |
-| `.spr`          | 158             | 0               | 158             | ✅ Yes           |
-| `.res`          | 92              | 92              | 0               | ✅ Yes           |
-| `.dat` (mtp)    | 17              | 17              | 0               | 📆 Not now      |
-| `.mtp`          | 17              | 17              | 0               | 📆 Not now      |
-| `.bit`          | 14              | 14              | 0               | 📆 Not now      |
-| `.cmd`          | 14              | 14              | 0               | 📆 Not now      |
-| `.ctr`          | 14              | 14              | 0               | 📆 Not now      |
-| `.lmp`          | 14              | 14              | 0               | 📆 Not now      |
-| `.fnt`          | 11              | 2               | 9               | ✅ Yes           |
-| `.hmp`          | 6               | 6               | 0               | 📆 Not now      |
-| `.rtf`          | 6               | 6               | 0               | ❌ Not           |
-| `.txt`          | 6               | 6               | 0               | ❌ Not           |
-| `.iff`          | 6               | 6               | 0               | 📆 Not now      |
-| `.url`          | 5               | 5               | 0               | ❌ Not           |
-| `.avi`          | 5               | 5               | 0               | ❌ Not           |
-| `.pic`          | 5               | 0               | 5               | ✅ Yes           |
-| `.AFP`          | 3               | 3               | 0               | ❌ Not           |
-| `.exe`          | 2               | 2               | 0               | ❌ Not           |
+| `.olm`          | 25337           | 0               | 25337           | Not now         |
+| `.tex`          | 7225            | 26              | 7199            | Yes             |
+| `.mef`          | 6794            | 0               | 6794            | Not now         |
+| `.qvm`          | 997             | 997             | 0               | Yes             |
+| `.wav`          | 740             | 394             | 346             | Yes             |
+| `.dat` (graph)  | 300             | 300             | 0               | Yes             |
+| `.spr`          | 158             | 0               | 158             | Yes             |
+| `.res`          | 92              | 92              | 0               | Yes             |
+| `.dat` (mtp)    | 17              | 17              | 0               | Not now         |
+| `.mtp`          | 17              | 17              | 0               | Not now         |
+| `.fnt`          | 11              | 2               | 9               | Yes             |
+| `.hmp`          | 6               | 6               | 0               | Not now         |
+| `.pic`          | 5               | 0               | 5               | Yes             |
+
+## License
+
+MIT

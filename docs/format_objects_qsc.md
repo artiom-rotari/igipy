@@ -1,4 +1,4 @@
-[← MEF Format](format_mef.md) · [Back to README.md](../README.md#supported-game-file-formats)
+[Back to README](../README.md)
 
 # objects.qsc — Level Scene Graph
 

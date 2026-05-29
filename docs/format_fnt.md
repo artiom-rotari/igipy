@@ -1,4 +1,4 @@
-[← QVM Format](format_qvm.md) · [Back to README.md](../README.md#supported-game-file-formats) · [THM Format →](format_thm.md)
+[Back to README](../README.md)
 
 # FNT Format
 

@@ -1,4 +1,4 @@
-[← FNT Format](format_fnt.md) · [Back to README.md](../README.md#supported-game-file-formats) · [TMM Format →](format_tmm.md)
+[Back to README](../README.md)
 
 # THM Format — Terrain Height Map
 

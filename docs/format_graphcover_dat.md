@@ -1,4 +1,4 @@
-[← Graph DAT](format_graph_dat.md) · [Back to README.md](../README.md#supported-game-file-formats) · [SYN Format →](format_syn.md)
+[Back to README](../README.md)
 
 # Graphcover DAT Format
 

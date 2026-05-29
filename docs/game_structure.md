@@ -1,4 +1,4 @@
-[Back to README.md](../README.md#supported-game-file-formats) · [File Extensions →](extensions.md)
+[Back to README](../README.md)
 
 # IGI2 Game File Organization
 

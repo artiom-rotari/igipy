@@ -1,4 +1,4 @@
-[← SYN Format](format_syn.md) · [Back to README.md](../README.md#supported-game-file-formats) · [MEF Format →](format_mef.md)
+[Back to README](../README.md)
 
 # IFF Format — Skeletal Animation
 

@@ -1,4 +1,4 @@
-[Back to README.md](../README.md#supported-game-file-formats)
+[Back to README](../README.md)
 
 # MEF Model Naming Convention
 
@@ -323,3 +323,9 @@ Special interactive behaviors assigned to model sub-parts in `magicobjconfig.qvm
 - `lod.qvm` -- Human-readable model descriptions
 - 24 level `objects.qvm` files -- `Task_New` calls mapping prefixes to object types
 - `docs/format_objects_qsc.md` lines 1527--1540 -- `ModelLODSettings` confirming LOD system
+
+## See Also
+
+- [MEF Format](format_mef.md) — 3D mesh model binary format
+- [objects.qsc](format_objects_qsc.md) — level scene graph with object type declarations
+- [Game Structure](game_structure.md) — IGI 2 directory layout and asset pipeline

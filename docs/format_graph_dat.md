@@ -1,4 +1,4 @@
-[← Forest DAT](format_forest_dat.md) · [Back to README.md](../README.md#supported-game-file-formats) · [Graphcover DAT →](format_graphcover_dat.md)
+[Back to README](../README.md)
 
 # Graph DAT Format
 
