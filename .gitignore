@@ -196,3 +196,11 @@ cython_debug/
 igipy.json
 
 .ignore
+
+.agents
+.claude
+.ai-factory.json
+.ai-factory
+AGENTS.md
+skills-lock.json
+

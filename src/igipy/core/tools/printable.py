@@ -1,0 +1,19 @@
+import string
+from pathlib import Path
+
+import typer
+
+
+def printable(src: Path, min_length: int = 5, charset: str = string.printable) -> None:
+    data = src.read_bytes()
+    word = bytearray()
+
+    charset = charset.encode()
+
+    for byte in data:
+        if byte in charset:
+            word.append(byte)
+        else:
+            if len(word) >= min_length:
+                typer.echo(word.decode())
+            word.clear()

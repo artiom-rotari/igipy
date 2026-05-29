@@ -23,15 +23,19 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "polars>=1.31.0",
-]
-lint = [
     "ruff>=0.12.0",
-]
-test = [
     "pytest>=8.4.1",
 ]
 
 [tool.ruff]
 line-length = 120
 lint.select = ["ALL"]
-lint.ignore = ["D", "COM812", "EM101", "EM102", "TRY003", "FBT001", "FBT002"]
+lint.ignore = [
+    "D",
+    "COM812",
+    "EM101",
+    "EM102",
+    "TRY003",
+    "FBT001",
+    "FBT002"
+]

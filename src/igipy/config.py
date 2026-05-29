@@ -3,12 +3,14 @@ from typing import ClassVar, Self
 
 from pydantic import BaseModel, Field
 
-from igipy.managers import IGI1Manager
+from igipy.igi1.manager import IGI1Manager
+from igipy.igi2.manager import IGI2Manager
 
 
 class Config(BaseModel):
     path: ClassVar[Path] = Path("igipy.json")
     igi1: IGI1Manager = Field(default_factory=IGI1Manager)
+    igi2: IGI2Manager = Field(default_factory=IGI2Manager)
 
     @classmethod
     def model_validate_file(cls) -> Self:
