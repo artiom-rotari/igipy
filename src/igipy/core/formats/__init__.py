@@ -1,4 +1,5 @@
 __all__ = [
+    "FBX",
     "QSC",
     "QVM",
     "RES",
@@ -7,6 +8,7 @@ __all__ = [
     "WAV",
 ]
 
+from .fbx import FBX
 from .qsc import QSC
 from .qvm import QVM
 from .res import RES

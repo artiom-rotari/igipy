@@ -2,12 +2,13 @@ from collections import defaultdict
 from functools import cached_property
 from io import BytesIO
 from struct import Struct
-from typing import ClassVar, Literal, Self
+from typing import ClassVar, Literal, Self, TypeVar
 
 from pydantic import BaseModel, Field, NonNegativeInt, model_validator
 
 from igipy.core.base import StructModel
 from igipy.core.formats import ilff
+from igipy.igi2.formats.common import REIHChunk
 
 
 class HSEMChunk(ilff.Chunk):
@@ -181,57 +182,61 @@ class CFTPChunk(ilff.Chunk):
         return {"content": cls.CFTPItem.unpack_many(content)}
 
 
+class D3DRItem0(StructModel):
+    struct: ClassVar = Struct("<9I")
+
+    flags: NonNegativeInt
+    total_face_count: NonNegativeInt
+    render_group_count: NonNegativeInt
+    total_vertex_count: NonNegativeInt
+    reserved_01: NonNegativeInt
+    reserved_02: NonNegativeInt
+    reserved_03: NonNegativeInt
+    reserved_04: NonNegativeInt
+    reserved_05: NonNegativeInt
+
+
+class D3DRItem1(StructModel):
+    struct: ClassVar = Struct("<10I")
+
+    flags: NonNegativeInt
+    total_face_count: NonNegativeInt
+    render_group_count: NonNegativeInt
+    unknown_01: NonNegativeInt
+    dner_vertex_count: NonNegativeInt
+    xtrv_vertex_count: NonNegativeInt
+    reserved_01: NonNegativeInt
+    reserved_02: NonNegativeInt
+    reserved_03: NonNegativeInt
+    reserved_04: NonNegativeInt
+
+
+class D3DRItem3(StructModel):
+    struct: ClassVar = Struct("<11I")
+
+    flags: NonNegativeInt
+    unknown_01: NonNegativeInt
+    total_face_count: NonNegativeInt
+    render_group_count: NonNegativeInt
+    total_vertex_count: NonNegativeInt
+    reserved_01: NonNegativeInt
+    reserved_02: NonNegativeInt
+    reserved_03: NonNegativeInt
+    reserved_04: NonNegativeInt
+    reserved_05: NonNegativeInt
+    reserved_06: NonNegativeInt
+
+
+D3DRItem = TypeVar("D3DRItem", D3DRItem0, D3DRItem1, D3DRItem3)
+
+
 class D3DRChunk(ilff.RawChunk):
-    class D3DRItem0(StructModel):
-        struct: ClassVar = Struct("<9I")
-
-        flags: NonNegativeInt
-        total_face_count: NonNegativeInt
-        render_group_count: NonNegativeInt
-        total_vertex_count: NonNegativeInt
-        reserved_01: NonNegativeInt
-        reserved_02: NonNegativeInt
-        reserved_03: NonNegativeInt
-        reserved_04: NonNegativeInt
-        reserved_05: NonNegativeInt
-
-    class D3DRItem1(StructModel):
-        struct: ClassVar = Struct("<10I")
-
-        flags: NonNegativeInt
-        total_face_count: NonNegativeInt
-        render_group_count: NonNegativeInt
-        unknown_01: NonNegativeInt
-        dner_vertex_count: NonNegativeInt
-        xtrv_vertex_count: NonNegativeInt
-        reserved_01: NonNegativeInt
-        reserved_02: NonNegativeInt
-        reserved_03: NonNegativeInt
-        reserved_04: NonNegativeInt
-
-    class D3DRItem3(StructModel):
-        struct: ClassVar = Struct("<11I")
-
-        flags: NonNegativeInt
-        unknown_01: NonNegativeInt
-        total_face_count: NonNegativeInt
-        render_group_count: NonNegativeInt
-        total_vertex_count: NonNegativeInt
-        reserved_01: NonNegativeInt
-        reserved_02: NonNegativeInt
-        reserved_03: NonNegativeInt
-        reserved_04: NonNegativeInt
-        reserved_05: NonNegativeInt
-        reserved_06: NonNegativeInt
-
     @classmethod
     def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
         ilff.model_validate_header(header, fourcc=b"D3DR")
 
     @classmethod
-    def parse_content(
-        cls, content: bytes, item_class: type[D3DRItem0 | D3DRItem1 | D3DRItem3]
-    ) -> D3DRItem0 | D3DRItem1 | D3DRItem3:
+    def parse_content(cls, content: bytes, item_class: type[D3DRItem]) -> D3DRItem:
         content = item_class.unpack_many(content)
 
         if len(content) != 1:
@@ -405,16 +410,23 @@ class ECAFChunk(ilff.Chunk):
         return {"content": cls.ECAFItem.unpack_many(content)}
 
 
-class REIHChunk(ilff.RawChunk):
-    @classmethod
-    def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
-        ilff.model_validate_header(header, fourcc=b"REIH")
+class MANBChunk(ilff.Chunk):
+    content: list[str]
 
-
-class MANBChunk(ilff.RawChunk):
     @classmethod
     def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
         ilff.model_validate_header(header, fourcc=b"MANB")
+
+    @classmethod
+    def model_validate_content(cls, content: bytes) -> dict:
+        if len(content) % 16 != 0:
+            raise ValueError("Content length must be a multiple of 16.")
+
+        bone_names = [
+            chunk.rstrip(b"\x00").decode("utf-8") for chunk in (content[i : i + 16] for i in range(0, len(content), 16))
+        ]
+
+        return {"content": bone_names}
 
 
 class WOLGChunk(ilff.Chunk):

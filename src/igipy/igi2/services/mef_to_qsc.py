@@ -10,10 +10,8 @@ be reconstructed. Collision mesh data (HSMC/XTVC/ECFC/TAMC/HPSC) is also
 compiler-generated and has no text equivalent.
 """
 
-from collections import deque
 from io import BytesIO
 from pathlib import Path
-from struct import Struct
 
 from igipy.core.formats.qsc import (
     QSC,
@@ -34,48 +32,6 @@ def _call(name: str, *args: float | str | bool) -> ExprStatement:
     return ExprStatement(expression=Call(function=name, arguments=[Literal(value=a) for a in args]))
 
 
-def _parse_reih(content: bytes) -> tuple[list[int], list[tuple[float, float, float]]]:
-    """Parse REIH raw bytes into (child_counts, rest_pose_offsets)."""
-    bone_count = (len(content) - 1) // 13
-    child_counts = list(content[:bone_count])
-    offset_data = content[bone_count + 1 :]
-    floats = Struct(f"<{bone_count * 3}f").unpack(offset_data)
-    offsets = [(floats[i * 3], floats[i * 3 + 1], floats[i * 3 + 2]) for i in range(bone_count)]
-    return child_counts, offsets
-
-
-def _build_parent_map(child_counts: list[int]) -> list[int]:
-    """Reconstruct parent indices from BFS-ordered child counts."""
-    count = len(child_counts)
-    parents = [-1] * count
-    if count <= 1:
-        return parents
-    queue: deque[list[int]] = deque()
-    queue.append([0, child_counts[0]])
-    bone_index = 1
-    while queue and bone_index < count:
-        front = queue[0]
-        if front[1] == 0:
-            queue.popleft()
-            continue
-        parents[bone_index] = front[0]
-        front[1] -= 1
-        if child_counts[bone_index] > 0:
-            queue.append([bone_index, child_counts[bone_index]])
-        bone_index += 1
-    return parents
-
-
-def _parse_manb(content: bytes, bone_count: int) -> list[str]:
-    """Parse MANB raw bytes into a list of bone name strings."""
-    names = []
-    for i in range(bone_count):
-        raw = content[i * 16 : (i + 1) * 16]
-        name = raw.rstrip(b"\x00").decode("ascii", errors="replace")
-        names.append(name)
-    return names
-
-
 def mef_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:
     target_path: Path | None = source_path.with_suffix(".mef") if source_path is not None else None
     mef = MEF.model_validate_stream(source_io)
@@ -93,10 +49,10 @@ def _build_bone_statements(mef: MEF) -> list[ExprStatement]:
     if mef.reih is None or mef.manb is None:
         return []
 
-    child_counts, rest_offsets = _parse_reih(mef.reih.content)
-    bone_count = len(child_counts)
-    parents = _build_parent_map(child_counts)
-    names = _parse_manb(mef.manb.content, bone_count)
+    rest_offsets = mef.reih.bones_offsets
+    bone_count = len(mef.reih.content)
+    parents = mef.reih.bones_parents
+    names = mef.manb.content[:bone_count]
 
     statements = [
         _call("Bone", i, names[i], parents[i], rest_offsets[i][0], rest_offsets[i][1], rest_offsets[i][2])

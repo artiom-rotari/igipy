@@ -6,6 +6,7 @@ from pydantic import Field
 
 from igipy.core.base import StructModel
 from igipy.core.formats import ilff
+from igipy.igi2.formats.common import REIHChunk
 
 # DHNA — Animation Header (variable size, reversed "ANHD")
 
@@ -42,33 +43,6 @@ class DHNAChunk(ilff.Chunk):
             "has_root_motion": has_root_motion,
             "unknown_02": unknown_02,
             "name": name,
-        }
-
-
-# REIH — Bone Hierarchy (variable size, reversed "HIER")
-
-
-class REIHChunk(ilff.Chunk):
-    bone_child_counts: list[int]
-    rest_pose_offsets: list[tuple[float, float, float]]
-
-    @classmethod
-    def model_validate_content(cls, content: bytes) -> dict:
-        # Derive bone_count from content length: (length - 1) // 13
-        bone_count = (len(content) - 1) // 13
-
-        # First bone_count bytes: BFS-ordered child counts (out-degree per bone).
-        # Sum equals bone_count - 1 (every bone except root has one parent).
-        bone_child_counts = list(content[:bone_count])
-
-        # Skip 1 padding byte, then bone_count x 3 floats for rest-pose offsets
-        offset_data = content[bone_count + 1 :]
-        floats = Struct(f"<{bone_count * 3}f").unpack(offset_data)
-        rest_pose_offsets = [(floats[i * 3], floats[i * 3 + 1], floats[i * 3 + 2]) for i in range(bone_count)]
-
-        return {
-            "bone_child_counts": bone_child_counts,
-            "rest_pose_offsets": rest_pose_offsets,
         }
 
 

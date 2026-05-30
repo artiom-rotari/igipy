@@ -33,8 +33,8 @@ def iff_to_json(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
             "name": iff.dhna.name,
         },
         "hierarchy": {
-            "bone_child_counts": iff.reih.bone_child_counts,
-            "rest_pose_offsets": [list(offset) for offset in iff.reih.rest_pose_offsets],
+            "bone_child_counts": iff.reih.bones_child_counts,
+            "rest_pose_offsets": [list(offset) for offset in iff.reih.bones_offsets],
         },
         "keyframes": [_sanitize(entry.model_dump()) for entry in iff.tnve.content],
         "attachments": ([_sanitize(item.model_dump()) for item in iff.atta.content] if iff.atta else []),
