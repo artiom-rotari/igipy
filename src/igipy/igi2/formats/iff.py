@@ -77,7 +77,7 @@ class REIHChunk(ilff.Chunk):
 
 class ATTAChunk(ilff.Chunk):
     class ATTAItem(StructModel):
-        struct: ClassVar = Struct("<16s3f4f4f4xII8x")
+        struct: ClassVar = Struct("<16s3f4f4ff4xI8x")
 
         name: bytes = Field(min_length=16, max_length=16)
         position_x: float
@@ -91,8 +91,8 @@ class ATTAChunk(ilff.Chunk):
         secondary_y: float
         secondary_z: float
         secondary_w: float
+        unknown_float: float
         bone_index: int
-        attachment_index: int
 
     content: list[ATTAItem]
 
@@ -139,7 +139,7 @@ class TNVERotation(StructModel):
     out_tangent_w: float
 
 
-class TNVEPositionInterp(StructModel):
+class TNVETrigger(StructModel):
     struct: ClassVar[Struct] = Struct("<BBH II 2I3f")
 
     entry_type: Literal[0x06]
@@ -147,8 +147,8 @@ class TNVEPositionInterp(StructModel):
     descriptor: int
     frame_offset: int
     reserved: int
-    extra_a: int
-    extra_b: int
+    trigger_bone: int
+    event_code: int
     position_x: float
     position_y: float
     position_z: float
@@ -205,7 +205,7 @@ class TNVESeparator(StructModel):
 
 
 type TNVEEntry = (
-    TNVEPosition | TNVERotation | TNVEPositionInterp | TNVEFullTransform | TNVEFullTransformTangent | TNVESeparator
+    TNVEPosition | TNVERotation | TNVETrigger | TNVEFullTransform | TNVEFullTransformTangent | TNVESeparator
 )
 
 
@@ -213,7 +213,7 @@ class TNVEChunk(ilff.Chunk):
     ENTRY_MAPPING: ClassVar[dict[int, type[TNVEEntry]]] = {
         0x03: TNVEPosition,
         0x04: TNVERotation,
-        0x06: TNVEPositionInterp,
+        0x06: TNVETrigger,
         0x07: TNVEFullTransform,
         0x01: TNVEFullTransformTangent,
         0xFF: TNVESeparator,

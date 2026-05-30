@@ -242,7 +242,7 @@ Offset  Size  Type     Field
 |--------|------|------|------------------------------------------------------------------|--------------------------------------------------------------|---------------------|
 | `0x03` | 6    | 24B  | header(12) + position(12)                                        | Position keyframe (3 floats)                                 | Common              |
 | `0x04` | 18   | 72B  | header(12) + 3x[quat(16) + pad(4)]                               | Rotation with tangents                                       | ~98% of all entries |
-| `0x06` | 8    | 32B  | header(12) + extra(8) + position(12)                             | Interpolation control point (NOT a direct position keyframe) | Uncommon            |
+| `0x06` | 8    | 32B  | header(12) + trigger_bone(4) + event_code(4) + position(12)     | Trigger event (sound, FX, etc.)                              | 322 files           |
 | `0x07` | 11   | 44B  | header(12) + position(12) + quat(16) + pad(4)                    | Full transform (pos + rot)                                   | 47-bone only        |
 | `0x01` | 17   | 68B  | header(12) + int(4) + 2x[quat(16)] + pad(4) + pos(12) + float(4) | Full transform with tangents                                 | 47-bone only        |
 | `0xFF` | 3    | 12B  | header only                                                      | Section separator (loop boundary)                            | 0 or 1 per file     |
@@ -286,13 +286,25 @@ Non-looping animations have no separator -- just a flat sequence of keyframe ent
 Section 2 provides the wrap-around pose for the game engine's loop blending and should be excluded from exported
 animation data.
 
-### Type 0x06 Entries (Interpolation Control)
+### Type 0x06 Entries (Trigger Events)
 
-Type `0x06` entries are **not direct position keyframes**. Their position values occupy a different coordinate space
-from regular position entries (type `0x03`). For example, in `civilian_walk.iff`, bone 0 has rest position
-`(0.4, 3.9, 3805.5)` but type `0x06` entries show `(752.5, 1622.4, -3041.8)` — clearly not in the same space. The 8-byte
-extra field contains a uint32 (often 0) and padding bytes (`0xABAB`). These entries should be skipped when extracting
-position keyframes for animation playback.
+Type `0x06` entries are **trigger events** (sound effects, particle FX, etc.), not animation keyframes. Present in 322 of
+1,244 files. Their `bone_index` field is always 0; the actual bone reference is in the `trigger_bone` field.
+
+```
+Offset  Size  Content
+0       12    Common header (type=0x06, bone_idx=0, desc=8, frame_offset, reserved)
+12      4     Trigger bone (uint32; 0xFFFF0000+ = no bone / world-space)
+16      4     Event code (uint32; upper 16 bits = 0xABAB sentinel, lower 16 bits = event ID)
+20      12    Position (3 x float32; world-space trigger location, NOT bone-space)
+```
+
+The position values are world-space coordinates for the trigger location, not bone-local offsets. For example, in
+`civilian_walk.iff`, bone 0 has rest position `(0.4, 3.9, 3805.5)` but type `0x06` entries show
+`(752.5, 1622.4, -3041.8)` — these are spatial trigger points for footstep sounds, not bone poses.
+
+The event code encodes as `0xABAB0000 | event_id`. To extract the BEF-visible event code: `event_code & 0xFFFF`.
+The trigger bone field uses values ≥ `0xFFFF0000` as a sentinel for "no bone" (world-space trigger).
 
 ### Delta Compression
 
@@ -310,9 +322,9 @@ Offset  Size  Type      Field
 16      12    float3    Position (3 x float32)
 28      16    float4    Orientation quaternion (4 x float32)
 44      16    float4    Secondary quaternion (4 x float32)
-60      4     -         Padding (0xAB x 4)
-64      4     uint32    Bone index (0xABABABAB = no bone / unlinked)
-68      4     uint32    Attachment index
+60      4     float     Unknown float
+64      4     -         Padding (0xAB x 4)
+68      4     uint32    Bone index (0xABABABAB = no bone / unlinked)
 72      8     -         Reserved (zeros)
 ```
 
@@ -449,6 +461,69 @@ skeleton.
 Frame offsets in TNVE entries use the same time unit as `DHNA.duration`. Specific frame rate and time-unit-to-seconds
 conversion factor are not yet determined -- this requires cross-referencing with the game engine's animation playback
 system or QSC script timing values.
+
+## BEF Source Format
+
+BEF files are the reverse-engineered text-based source format from which IFF binary animations were compiled. 1,244 BEF
+files exist in 1:1 correspondence with IFF files. They use a C-like syntax of semicolon-terminated function calls,
+identical to QSC script files.
+
+### Structure
+
+```
+AnimInit(name, 0, duration, looping);
+BreakScript();
+Bone(id, "Bone # XX", parent_id, x, y, z);  // × bone_count
+BuildHierarchy();
+AnimAttachObject(name, index, ox,oy,oz,ow, sx,sy,sz,sw, uf, px,py,pz);  // optional
+AnimAttachObjectBoneID(index, bone_id);                                    // optional
+BreakScript();
+TranslationKeyFrameData(bone, 0, tick, x, y, z);
+RotationKeyFrameData(bone, 0, tick, qx,qy,qz,qw, ix,iy,iz,iw, ox,oy,oz,ow);
+TriggerData(id, event_code, tick, bone, x, y, z);  // optional
+```
+
+### Field Mapping (BEF → IFF Binary)
+
+| BEF Function | IFF Location | Field Mapping |
+|---|---|---|
+| `AnimInit` arg0 | DHNA | Animation name (string) |
+| `AnimInit` arg1 | DHNA `unknown_01` | Always 0 (NOT `version`, which is always 4) |
+| `AnimInit` arg2 | DHNA `duration` | BEF value = IFF value + 1 |
+| `AnimInit` arg3 | DHNA `looping` | 0 = one-shot, 1 = looping |
+| `Bone` parent_id | REIH | BEF stores explicit parent indices; REIH encodes as BFS child counts |
+| `Bone` x,y,z | REIH offsets | Rest-pose parent-relative translations |
+| `AnimAttachObject` 12 floats | ATTA | orientation(4) + secondary(4) + unknown_float(1) + position(3) |
+| `AnimAttachObjectBoneID` | ATTA `bone_index` | Attachment index is implicit (sequential order) |
+| `TranslationKeyFrameData` | TNVE 0x03 | bone, 0, frame_offset, position xyz |
+| `RotationKeyFrameData` | TNVE 0x04 | bone, 0, frame_offset, 3× quaternion (value + in_tangent + out_tangent) |
+| `TriggerData` | TNVE 0x06 | sequential_id, event_code & 0xFFFF, frame_offset, trigger_bone, position xyz |
+
+### Statistics
+
+- AnimInit arg1: always 0 across all 1,244 files
+- AnimInit arg3: 839 files = 0 (non-looping), 405 files = 1 (looping)
+- TriggerData present in 322/1,244 files
+
+### TNVE Entry Type to BEF Function Mapping
+
+| TNVE Entry | Type | BEF Function(s) | Notes |
+|---|---|---|---|
+| `TNVEPosition` | 0x03 | `TranslationKeyFrameData(bone, 0, tick, x, y, z)` | Direct 1:1 mapping |
+| `TNVERotation` | 0x04 | `RotationKeyFrameData(bone, 0, tick, qx,qy,qz,qw, ix,iy,iz,iw, ox,oy,oz,ow)` | 3 quaternions: value + in_tangent + out_tangent |
+| `TNVETrigger` | 0x06 | `TriggerData(seq_id, event_code & 0xFFFF, tick, trigger_bone, x, y, z)` | `bone_index` is always 0; real bone is `trigger_bone` |
+| `TNVEFullTransform` | 0x07 | `TranslationKeyFrameData(...)` + `RotationKeyFrameData(...)` | Split into 2 calls; quaternion duplicated for all 3 tangent slots |
+| `TNVEFullTransformTangent` | 0x01 | `TranslationKeyFrameData(...)` + `RotationKeyFrameData(...)` | Split into 2 calls; `quaternion_a` used for all 3 tangent slots |
+| `TNVESeparator` | 0xFF | *(not emitted)* | Loop boundary marker — skipped in BEF output |
+
+Types 0x07 and 0x01 only appear in 47-bone animations. BEF has no combined transform function, so the converter emits
+separate translation + rotation calls. The rotation call duplicates the quaternion value into the in/out tangent slots
+since these types store no separate tangent data.
+
+### Converter
+
+The `iff_to_qsc` converter reconstructs BEF source from IFF binary data using the QSC AST infrastructure. Output files
+use the `.bef` extension. Available as the `zip-convert-iff-to-qsc` CLI command.
 
 ## Open Questions
 

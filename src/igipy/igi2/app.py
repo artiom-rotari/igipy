@@ -17,6 +17,7 @@ from igipy.igi2.services.dat_graphcover_to_json import dat_graphcover_to_json
 from igipy.igi2.services.fnt_to_zip import fnt_to_zip
 from igipy.igi2.services.iff_to_gltf import iff_to_gltf
 from igipy.igi2.services.iff_to_json import iff_to_json
+from igipy.igi2.services.iff_to_qsc import iff_to_qsc
 from igipy.igi2.services.olm_to_tga import olm_to_tga
 from igipy.igi2.services.syn_to_json import syn_to_json
 from igipy.igi2.services.thm_to_tga import thm_to_tga
@@ -174,6 +175,9 @@ def igi2_zip_convert_all(dry: bool = False) -> None:
 
     typer.secho("Converting .iff to .gltf skeleton animation...", fg="green")
     igi2_zip_convert_iff_to_gltf(dry=dry)
+
+    typer.secho("Converting .iff to .bef animation source...", fg="green")
+    igi2_zip_convert_iff_to_qsc(dry=dry)
 
     typer.secho("All zip conversions complete.", fg="green", bold=True)
 
@@ -418,6 +422,21 @@ def igi2_zip_convert_iff_to_gltf(dry: bool = False) -> None:
         collect_path=config.igi2.collect_path,
         convert_path=config.igi2.convert_path,
         converter=iff_to_gltf,
+        patterns=["*.iff"],
+        dry=dry,
+    )
+
+
+@igi2_app.command(
+    name="zip-convert-iff-to-qsc",
+    short_help="Convert .iff files from collect zip to .bef animation source in convert zip",
+)
+def igi2_zip_convert_iff_to_qsc(dry: bool = False) -> None:
+    config = Config.model_validate_file()
+    convert_zip(
+        collect_path=config.igi2.collect_path,
+        convert_path=config.igi2.convert_path,
+        converter=iff_to_qsc,
         patterns=["*.iff"],
         dry=dry,
     )

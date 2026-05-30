@@ -159,6 +159,7 @@ class Stack(BaseModel):
 class QSC(FileModel):
     indent_width: int = 1
     indent_char: str = "\t"
+    max_line_length: int = 300
 
     content: BlockStatement
 
@@ -225,7 +226,7 @@ class QSC(FileModel):
                 argument_token_indent = self.indent * (indent + 1)
                 argument_token = f"\n{argument_token_indent}{argument_token}"
                 token_length = len(argument_token) + 2
-            elif len(argument_token) + token_length > 300:  # noqa: PLR2004
+            elif len(argument_token) + token_length > self.max_line_length:
                 argument_token = f"\n{argument_token}"
                 token_length = len(argument_token) + 2
             else:
