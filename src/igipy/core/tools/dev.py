@@ -46,23 +46,23 @@ def dev_count_extensions(path: Path) -> None:
     short_help="Copy files from source to destination, excluding .res/.mtp/.dat(with .mtp)",
 )
 def dev_copy_files(
-    src: Annotated[Path, typer.Argument(help="Source directory")],
-    dst: Annotated[Path, typer.Argument(help="Destination directory")],
+    source: Annotated[Path, typer.Argument(help="Source directory")],
+    destination: Annotated[Path, typer.Argument(help="Destination directory")],
     dry: bool = False,
 ) -> None:
-    if not src.is_dir():
-        typer.secho(f"Error: '{src}' is not a directory.", fg="red")
+    if not source.is_dir():
+        typer.secho(f"Error: '{source}' is not a directory.", fg="red")
         raise typer.Exit(1)
 
-    if not dst.is_dir():
-        typer.secho(f"Error: '{dst}' is not a directory.", fg="red")
+    if not destination.is_dir():
+        typer.secho(f"Error: '{destination}' is not a directory.", fg="red")
         raise typer.Exit(1)
 
     number = 0
 
     excluded_extensions = {".res", ".mtp"}
 
-    for item in sorted(src.rglob("*")):
+    for item in sorted(source.rglob("*")):
         if not item.is_file():
             continue
 
@@ -72,19 +72,21 @@ def dev_copy_files(
         if item.suffix.lower() == ".dat" and item.with_suffix(".mtp").exists():
             continue
 
-        rel = item.relative_to(src)
+        rel = item.relative_to(source)
         parts = rel.parts
         lowered_parents = [p.lower() for p in parts[:-1]]
-        dst_path = dst.joinpath(*lowered_parents, parts[-1]) if lowered_parents else dst / parts[-1]
+        destination_path = (
+            destination.joinpath(*lowered_parents, parts[-1]) if lowered_parents else destination / parts[-1]
+        )
 
         number += 1
         typer.echo(
             f'Copy [{number:>05}]: "{typer.style(rel.as_posix(), fg="green")}" '
-            f'to "{typer.style(dst_path.as_posix(), fg="yellow")}"'
+            f'to "{typer.style(destination_path.as_posix(), fg="yellow")}"'
         )
 
         if not dry:
-            dst_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dst_path)
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, destination_path)
 
     typer.secho(f"Total: {number} files {'(dry run)' if dry else 'copied'}.", fg="green")

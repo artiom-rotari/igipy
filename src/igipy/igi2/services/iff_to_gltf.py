@@ -10,7 +10,7 @@ import base64
 import json
 import math
 import struct
-from collections import defaultdict, deque
+from collections import defaultdict
 from io import BytesIO
 from pathlib import Path
 
@@ -45,14 +45,14 @@ ATTA_NO_BONE = 0xABABABAB
 #            (qx, qy, qz, qw) → (qx, qz, -qy, qw) for quaternions.
 
 
-def _pos_to_gltf(x: float, y: float, z: float) -> tuple[float, float, float]:
+def _position_to_gltf(x: float, y: float, z: float) -> tuple[float, float, float]:
     """Convert a position from IGI2 Z-up to glTF Y-up coordinates."""
     return x * SCALE, z * SCALE, -y * SCALE
 
 
-def _quat_to_gltf(x: float, y: float, z: float, w: float) -> tuple[float, float, float, float]:
+def _quaternion_to_gltf(x: float, y: float, z: float, w: float) -> tuple[float, float, float, float]:
     """Convert a quaternion from IGI2 Z-up to glTF Y-up coordinates."""
-    return _normalize_quat(x, z, -y, w)
+    return _normalize_quaternion(x, z, -y, w)
 
 
 # Bone names from MEF MANB chunk for the 31-bone human skeleton.
@@ -91,44 +91,13 @@ _BONE_NAMES_31 = [
 ]
 
 
-# noinspection DuplicatedCode
-def _build_parent_map(child_counts: list[int]) -> list[int]:
-    """Reconstruct parent indices from BFS-ordered child counts.
-
-    REIH bone_child_counts are the out-degree (number of direct children)
-    for each bone, listed in breadth-first order. The sum of all counts equals
-    N-1 (every bone except the root has exactly one parent).
-
-    The algorithm uses a FIFO queue: each bone is dequeued once all its children
-    have been assigned, and each new bone with children > 0 is enqueued.
-    """
-    n = len(child_counts)
-    parents = [-1] * n
-    if n <= 1:
-        return parents
-    queue: deque[list[int]] = deque()
-    queue.append([0, child_counts[0]])  # [bone_index, remaining_children]
-    bone_idx = 1
-    while queue and bone_idx < n:
-        front = queue[0]
-        if front[1] == 0:
-            queue.popleft()
-            continue
-        parents[bone_idx] = front[0]
-        front[1] -= 1
-        if child_counts[bone_idx] > 0:
-            queue.append([bone_idx, child_counts[bone_idx]])
-        bone_idx += 1
-    return parents
-
-
-def _normalize_quat(x: float, y: float, z: float, w: float) -> tuple[float, float, float, float]:
+def _normalize_quaternion(x: float, y: float, z: float, w: float) -> tuple[float, float, float, float]:
     """Normalize a quaternion to unit length. Returns identity if zero-length."""
     length = math.sqrt(x * x + y * y + z * z + w * w)
     if length < QUATERNION_EPSILON:
         return 0.0, 0.0, 0.0, 1.0
-    inv = 1.0 / length
-    return x * inv, y * inv, z * inv, w * inv
+    inverse_length = 1.0 / length
+    return x * inverse_length, y * inverse_length, z * inverse_length, w * inverse_length
 
 
 def _make_data_uri(raw: bytes) -> str:
@@ -151,8 +120,8 @@ def _collect_tracks(
     """
     duration = max(iff.dhna.duration, 1)
 
-    trans: dict[int, list[tuple[float, tuple[float, float, float]]]] = defaultdict(list)
-    rots: dict[int, list[tuple[float, tuple[float, float, float, float]]]] = defaultdict(list)
+    translation_tracks: dict[int, list[tuple[float, tuple[float, float, float]]]] = defaultdict(list)
+    rotation_tracks: dict[int, list[tuple[float, tuple[float, float, float, float]]]] = defaultdict(list)
 
     for entry in iff.tnve.content:
         if isinstance(entry, TNVESeparator):
@@ -163,7 +132,9 @@ def _collect_tracks(
         t = entry.frame_offset / duration
 
         if isinstance(entry, TNVEPosition):
-            trans[entry.bone_index].append((t, _pos_to_gltf(entry.position_x, entry.position_y, entry.position_z)))
+            translation_tracks[entry.bone_index].append(
+                (t, _position_to_gltf(entry.position_x, entry.position_y, entry.position_z))
+            )
 
         elif isinstance(entry, TNVETrigger):
             # Type 0x06 entries are trigger events (sound, FX, etc.), not
@@ -172,34 +143,38 @@ def _collect_tracks(
             pass
 
         elif isinstance(entry, TNVERotation):
-            rots[entry.bone_index].append(
-                (t, _quat_to_gltf(entry.quaternion_x, entry.quaternion_y, entry.quaternion_z, entry.quaternion_w))
+            rotation_tracks[entry.bone_index].append(
+                (t, _quaternion_to_gltf(entry.quaternion_x, entry.quaternion_y, entry.quaternion_z, entry.quaternion_w))
             )
 
         elif isinstance(entry, TNVEFullTransform):
-            trans[entry.bone_index].append((t, _pos_to_gltf(entry.position_x, entry.position_y, entry.position_z)))
-            rots[entry.bone_index].append(
-                (t, _quat_to_gltf(entry.quaternion_x, entry.quaternion_y, entry.quaternion_z, entry.quaternion_w))
+            translation_tracks[entry.bone_index].append(
+                (t, _position_to_gltf(entry.position_x, entry.position_y, entry.position_z))
+            )
+            rotation_tracks[entry.bone_index].append(
+                (t, _quaternion_to_gltf(entry.quaternion_x, entry.quaternion_y, entry.quaternion_z, entry.quaternion_w))
             )
 
         elif isinstance(entry, TNVEFullTransformTangent):
-            trans[entry.bone_index].append((t, _pos_to_gltf(entry.position_x, entry.position_y, entry.position_z)))
-            rots[entry.bone_index].append(
+            translation_tracks[entry.bone_index].append(
+                (t, _position_to_gltf(entry.position_x, entry.position_y, entry.position_z))
+            )
+            rotation_tracks[entry.bone_index].append(
                 (
                     t,
-                    _quat_to_gltf(
+                    _quaternion_to_gltf(
                         entry.quaternion_a_x, entry.quaternion_a_y, entry.quaternion_a_z, entry.quaternion_a_w
                     ),
                 )
             )
 
     # Sort each track by time
-    for track in trans.values():
+    for track in translation_tracks.values():
         track.sort(key=lambda x: x[0])
-    for track in rots.values():
+    for track in rotation_tracks.values():
         track.sort(key=lambda x: x[0])
 
-    return trans, rots
+    return translation_tracks, rotation_tracks
 
 
 class _GltfBufferBuilder:
@@ -286,19 +261,19 @@ def _add_attachment_nodes(iff: IFF, nodes: list[dict], bone_count: int) -> list[
 
     for item in iff.atta.content:
         name = item.name.rstrip(b"\x00").decode("ascii", errors="replace")
-        att_node: dict = {
+        attachment_node: dict = {
             "name": f"attach_{name}",
-            "translation": list(_pos_to_gltf(item.position_x, item.position_y, item.position_z)),
+            "translation": list(_position_to_gltf(item.position_x, item.position_y, item.position_z)),
             "rotation": list(
-                _quat_to_gltf(item.orientation_x, item.orientation_y, item.orientation_z, item.orientation_w)
+                _quaternion_to_gltf(item.orientation_x, item.orientation_y, item.orientation_z, item.orientation_w)
             ),
         }
-        att_idx = len(nodes)
-        nodes.append(att_node)
+        attachment_index = len(nodes)
+        nodes.append(attachment_node)
         if item.bone_index != ATTA_NO_BONE and 0 <= item.bone_index < bone_count:
-            nodes[item.bone_index].setdefault("children", []).append(att_idx)
+            nodes[item.bone_index].setdefault("children", []).append(attachment_index)
         else:
-            unparented.append(att_idx)
+            unparented.append(attachment_index)
 
     return unparented
 
@@ -308,8 +283,8 @@ def _build_skeleton_nodes(iff: IFF, bone_count: int) -> tuple[list[dict], list[i
 
     Returns (nodes, scene_nodes) where scene_nodes lists root-level node indices.
     """
-    parent_map = _build_parent_map(iff.reih.bone_child_counts)
-    raw_offsets = list(iff.reih.rest_pose_offsets) if iff.reih.rest_pose_offsets else []
+    parent_map = iff.reih.bones_parents
+    raw_offsets = iff.reih.bones_offsets
     bone_names = _BONE_NAMES_31 if bone_count == len(_BONE_NAMES_31) else None
 
     nodes: list[dict] = []
@@ -318,7 +293,7 @@ def _build_skeleton_nodes(iff: IFF, bone_count: int) -> tuple[list[dict], list[i
         node: dict = {"name": name}
         if i < len(raw_offsets):
             ox, oy, oz = raw_offsets[i]
-            node["translation"] = list(_pos_to_gltf(ox, oy, oz))
+            node["translation"] = list(_position_to_gltf(ox, oy, oz))
         nodes.append(node)
 
     # Build children lists from parent map
@@ -339,8 +314,8 @@ def _build_skeleton_nodes(iff: IFF, bone_count: int) -> tuple[list[dict], list[i
 
 def _build_animation(
     builder: _GltfBufferBuilder,
-    trans_tracks: dict[int, list[tuple[float, tuple[float, float, float]]]],
-    rot_tracks: dict[int, list[tuple[float, tuple[float, float, float, float]]]],
+    translation_tracks: dict[int, list[tuple[float, tuple[float, float, float]]]],
+    rotation_tracks: dict[int, list[tuple[float, tuple[float, float, float, float]]]],
     bone_count: int,
 ) -> tuple[list[dict], list[dict]]:
     """Build glTF animation channels and samplers from keyframe tracks.
@@ -350,7 +325,7 @@ def _build_animation(
     channels: list[dict] = []
     samplers: list[dict] = []
 
-    for bone_idx, track in sorted(trans_tracks.items()):
+    for bone_idx, track in sorted(translation_tracks.items()):
         if bone_idx >= bone_count or not track:
             continue
         times = [kf[0] for kf in track]
@@ -361,7 +336,7 @@ def _build_animation(
         samplers.append({"input": time_acc, "output": value_acc, "interpolation": "LINEAR"})
         channels.append({"sampler": sampler_idx, "target": {"node": bone_idx, "path": "translation"}})
 
-    for bone_idx, track in sorted(rot_tracks.items()):
+    for bone_idx, track in sorted(rotation_tracks.items()):
         if bone_idx >= bone_count or not track:
             continue
         times = [kf[0] for kf in track]
@@ -380,11 +355,11 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
     iff = IFF.model_validate_stream(source_io)
 
     bone_count = iff.dhna.bone_count
-    trans_tracks, rot_tracks = _collect_tracks(iff)
+    translation_tracks, rotation_tracks = _collect_tracks(iff)
 
     builder = _GltfBufferBuilder()
     nodes, scene_nodes = _build_skeleton_nodes(iff, bone_count)
-    channels, samplers = _build_animation(builder, trans_tracks, rot_tracks, bone_count)
+    channels, samplers = _build_animation(builder, translation_tracks, rotation_tracks, bone_count)
 
     # Assemble glTF
     gltf: dict = {

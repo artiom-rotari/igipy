@@ -4,8 +4,8 @@ from pathlib import Path
 import typer
 
 
-def printable(src: Path, min_length: int = 5, charset: str = string.printable) -> None:
-    data = src.read_bytes()
+def printable(source: Path, min_length: int = 5, charset: str = string.printable) -> None:
+    data = source.read_bytes()
     word = bytearray()
 
     charset = charset.encode()

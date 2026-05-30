@@ -162,42 +162,42 @@ class TEX07(BaseModel):
 
     @staticmethod
     def _dump_tex06(footer: "TEX06") -> bytes:
-        buf = BytesIO()
-        fh = footer.header
-        buf.write(
+        buffer = BytesIO()
+        footer_header = footer.header
+        buffer.write(
             TEX06Header.struct.pack(
-                fh.signature,
-                fh.version,
-                fh.unknown_01,
-                fh.unknown_02,
-                fh.unknown_03,
-                fh.unknown_04,
-                fh.count_x,
-                fh.count_y,
+                footer_header.signature,
+                footer_header.version,
+                footer_header.unknown_01,
+                footer_header.unknown_02,
+                footer_header.unknown_03,
+                footer_header.unknown_04,
+                footer_header.count_x,
+                footer_header.count_y,
             )
         )
-        for c in footer.content:
-            buf.write(
+        for content_item in footer.content:
+            buffer.write(
                 TEX06Content.struct.pack(
-                    c.unknown_01,
-                    c.unknown_02,
-                    c.unknown_03,
-                    c.unknown_04,
+                    content_item.unknown_01,
+                    content_item.unknown_02,
+                    content_item.unknown_03,
+                    content_item.unknown_04,
                 )
             )
-        return buf.getvalue()
+        return buffer.getvalue()
 
     @property
     def bitmap(self) -> np.ndarray:
         tiles: list[np.ndarray] = [tile.bitmap_np for tile in self.item_contents]
-        tiles_cols: int = self.footer.header.count_x
+        tiles_columns: int = self.footer.header.count_x
         tiles_rows: int = self.footer.header.count_y
 
         tile_height, tile_width = tiles[0].shape
-        full_image = np.zeros((tiles_rows * tile_height, tiles_cols * tile_width), dtype=tiles[0].dtype)
+        full_image = np.zeros((tiles_rows * tile_height, tiles_columns * tile_width), dtype=tiles[0].dtype)
 
         for index, tile in enumerate(tiles):
-            row, col = divmod(index, tiles_cols)
+            row, col = divmod(index, tiles_columns)
             full_image[row * tile_height : (row + 1) * tile_height, col * tile_width : (col + 1) * tile_width] = tile
 
         return full_image

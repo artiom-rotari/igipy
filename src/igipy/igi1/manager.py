@@ -38,19 +38,19 @@ class IGI1Manager(BaseManager):
         return value
 
     def read_from_source(self, patterns: list[str]) -> Generator[tuple[BytesIO, Path, None]]:
-        for src_path in self.source_dir.glob("**/*"):
-            if src_path.is_file(follow_symlinks=False) and any(src_path.match(pattern) for pattern in patterns):
-                yield BytesIO(src_path.read_bytes()), src_path.relative_to(self.source_dir), None
+        for source_path in self.source_dir.glob("**/*"):
+            if source_path.is_file(follow_symlinks=False) and any(source_path.match(pattern) for pattern in patterns):
+                yield BytesIO(source_path.read_bytes()), source_path.relative_to(self.source_dir), None
 
     def read_from_unpack(self, patterns: list[str]) -> Generator[tuple[BytesIO, Path, Path]]:
         for zip_path in self.unpack_dir.glob("**/*.zip"):
             with zipfile.ZipFile(zip_path, "r") as zip_file:
                 for file_info in zip_file.infolist():
-                    src_path = Path(file_info.filename)
+                    source_path = Path(file_info.filename)
 
-                    if any(src_path.match(pattern) for pattern in patterns):
-                        src_stream = BytesIO(zip_file.read(file_info))
-                        yield src_stream, src_path, zip_path.relative_to(self.unpack_dir)
+                    if any(source_path.match(pattern) for pattern in patterns):
+                        source_stream = BytesIO(zip_file.read(file_info))
+                        yield source_stream, source_path, zip_path.relative_to(self.unpack_dir)
 
     def read_all_res(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
         yield from self.read_from_source(patterns=["**/*.res"])

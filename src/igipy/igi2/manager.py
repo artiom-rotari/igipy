@@ -9,76 +9,48 @@ from igipy.core.manager import BaseManager, PosixPath
 
 
 class IGI2Manager(BaseManager):
-    source_dir: PosixPath = Path("C:/Games/ProjectIGI2")
-    unpack_dir: PosixPath = Path("./unpack")
-    target_dir: PosixPath = Path("./target")
+    game_dir: PosixPath = Path("C:/Games/ProjectIGI2")
     collect_path: PosixPath = Path("igi2_collected.zip")
     convert_path: PosixPath = Path("igi2_converted.zip")
 
     # noinspection PyNestedDecorators
-    @field_validator("source_dir", mode="after")
+    @field_validator("game_dir", mode="after")
     @classmethod
     def is_game_dir(cls, value: Path) -> Path:
         if not value.is_dir():
             raise ValueError(f"{value.as_posix()} is not a directory")
 
-        if not (value / "config.qvm").is_file(follow_symlinks=False):
-            raise ValueError(f"config.qvm not found in {value.as_posix()}")
-
         return value
 
-    # noinspection PyNestedDecorators
-    @field_validator("unpack_dir", "target_dir", mode="after")
-    @classmethod
-    def is_work_dir(cls, value: Path) -> Path:
-        if not value.exists():
-            value.mkdir(parents=True)
+    def read_from_collect_zip(self, patterns: list[str]) -> Generator[tuple[BytesIO, Path, Path]]:
+        with zipfile.ZipFile(self.collect_path, "r") as zip_file:
+            for file_info in zip_file.infolist():
+                source_path = Path(file_info.filename)
 
-        if not value.is_dir():
-            raise ValueError(f"{value.as_posix()} is not a directory")
-
-        return value
-
-    def read_from_source(self, patterns: list[str]) -> Generator[tuple[BytesIO, Path, None]]:
-        for src_path in self.source_dir.glob("**/*"):
-            if src_path.is_file(follow_symlinks=False) and any(src_path.match(pattern) for pattern in patterns):
-                yield BytesIO(src_path.read_bytes()), src_path.relative_to(self.source_dir), None
-
-    def read_from_unpack(self, patterns: list[str]) -> Generator[tuple[BytesIO, Path, Path]]:
-        for zip_path in self.unpack_dir.glob("**/*.zip"):
-            with zipfile.ZipFile(zip_path, "r") as zip_file:
-                for file_info in zip_file.infolist():
-                    src_path = Path(file_info.filename)
-
-                    if any(src_path.match(pattern) for pattern in patterns):
-                        src_stream = BytesIO(zip_file.read(file_info))
-                        yield src_stream, src_path, zip_path.relative_to(self.unpack_dir)
-
-    def read_all_res(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_source(patterns=["**/*.res"])
+                if any(source_path.match(pattern) for pattern in patterns):
+                    source_stream = BytesIO(zip_file.read(file_info))
+                    yield source_stream, source_path, self.collect_path
 
     def read_all_wav(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_source(patterns=["**/*.wav"])
-        yield from self.read_from_unpack(patterns=["**/*.wav"])
+        yield from self.read_from_collect_zip(patterns=["**/*.wav"])
 
     def read_all_qvm(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_source(patterns=["**/*.qvm"])
+        yield from self.read_from_collect_zip(patterns=["**/*.qvm"])
 
     def read_all_tex(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_source(patterns=["**/*.tex", "**/*.spr", "**/*.pic"])
-        yield from self.read_from_unpack(patterns=["**/*.tex", "**/*.spr", "**/*.pic"])
+        yield from self.read_from_collect_zip(patterns=["**/*.tex", "**/*.spr", "**/*.pic"])
 
     def read_all_mef(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_unpack(patterns=["**/*.mef"])
+        yield from self.read_from_collect_zip(patterns=["**/*.mef"])
 
     def read_all_mtp(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_source(patterns=["**/*.mtp"])
+        yield from self.read_from_collect_zip(patterns=["**/*.mtp"])
 
     def read_all_syn(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_source(patterns=["**/*.syn"])
+        yield from self.read_from_collect_zip(patterns=["**/*.syn"])
 
     def read_all_iff(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_unpack(patterns=["**/*.iff"])
+        yield from self.read_from_collect_zip(patterns=["**/*.iff"])
 
     def read_all_olm(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_unpack(patterns=["**/*.olm"])
+        yield from self.read_from_collect_zip(patterns=["**/*.olm"])

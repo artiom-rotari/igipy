@@ -1,4 +1,3 @@
-from collections import deque
 from io import BytesIO
 from pathlib import Path
 
@@ -34,28 +33,6 @@ def _call(name: str, *args: float | str) -> ExprStatement:
 
 
 # noinspection DuplicatedCode
-def _build_parent_map(child_counts: list[int]) -> list[int]:
-    n = len(child_counts)
-    parents = [-1] * n
-    if n <= 1:
-        return parents
-    queue: deque[list[int]] = deque()
-    queue.append([0, child_counts[0]])
-    bone_idx = 1
-    while queue and bone_idx < n:
-        front = queue[0]
-        if front[1] == 0:
-            queue.popleft()
-            continue
-        parents[bone_idx] = front[0]
-        front[1] -= 1
-        if child_counts[bone_idx] > 0:
-            queue.append([bone_idx, child_counts[bone_idx]])
-        bone_idx += 1
-    return parents
-
-
-# noinspection DuplicatedCode
 def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:  # noqa: C901
     target_path: Path | None = source_path.with_suffix(".bef") if source_path is not None else None
     iff = IFF.model_validate_stream(source_io)
@@ -68,11 +45,11 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
     statements.append(_call("BreakScript"))
 
     # Bone(id, "Bone # XX", parent_id, x, y, z)  # noqa: ERA001
-    parent_map = _build_parent_map(iff.reih.bone_child_counts)
+    parent_map = iff.reih.bones_parents
     for i in range(iff.dhna.bone_count):
-        x, y, z = iff.reih.rest_pose_offsets[i]
-        sx, sy, sz = _scale_position(x), _scale_position(y), _scale_position(z)
-        statements.append(_call("Bone", i, f"Bone # {i:02d}", parent_map[i], sx, sy, sz))
+        x, y, z = iff.reih.bones_offsets[i]
+        scaled_x, scaled_y, scaled_z = _scale_position(x), _scale_position(y), _scale_position(z)
+        statements.append(_call("Bone", i, f"Bone # {i:02d}", parent_map[i], scaled_x, scaled_y, scaled_z))
     statements.append(_call("BuildHierarchy"))
 
     # AnimAttachObject + AnimAttachObjectBoneID (optional)  # noqa: ERA001
