@@ -23,18 +23,18 @@ class HSEMChunk(ilff.Chunk):
     unknown_02: NonNegativeInt
     unknown_03: NonNegativeInt
     unknown_04: NonNegativeInt
-    bbox_min_x: float
-    bbox_min_y: float
-    bbox_min_z: float
-    bbox_max_x: float
-    bbox_max_y: float
-    bbox_max_z: float
-    bbox2_min_x: float
-    bbox2_min_y: float
-    bbox2_min_z: float
-    bbox2_max_x: float
-    bbox2_max_y: float
-    bbox2_max_z: float
+    bounding_box_min_x: float
+    bounding_box_min_y: float
+    bounding_box_min_z: float
+    bounding_box_max_x: float
+    bounding_box_max_y: float
+    bounding_box_max_z: float
+    bounding_box_2_min_x: float
+    bounding_box_2_min_y: float
+    bounding_box_2_min_z: float
+    bounding_box_2_max_x: float
+    bounding_box_2_max_y: float
+    bounding_box_2_max_z: float
     render_face_count: NonNegativeInt
     render_vertex_count: NonNegativeInt
     unknown_05: NonNegativeInt
@@ -76,20 +76,20 @@ class ATTAChunk(ilff.Chunk):
         struct: ClassVar = Struct("<16s12f2i")
 
         name: bytes = Field(min_length=16, max_length=16)
-        transform_01: float
-        transform_02: float
-        transform_03: float
-        transform_04: float
-        transform_05: float
-        transform_06: float
-        transform_07: float
-        transform_08: float
-        transform_09: float
-        transform_10: float
-        transform_11: float
-        transform_12: float
-        index_a: int
-        index_b: int
+        m00: float
+        m01: float
+        m02: float
+        m10: float
+        m11: float
+        m12: float
+        m20: float
+        m21: float
+        m22: float
+        position_x: float
+        position_y: float
+        position_z: float
+        attach_index: int
+        bone_index: int
 
     content: list[ATTAItem]
 
@@ -106,10 +106,10 @@ class XTVMChunk(ilff.Chunk):
     class XTVMItem(StructModel):
         struct: ClassVar = Struct("<3fi")
 
-        unknown_01: float
-        unknown_02: float
-        unknown_03: float
-        unknown_04: int
+        position_x: float
+        position_y: float
+        position_z: float
+        param: int
 
     content: list[XTVMItem]
 
@@ -147,9 +147,9 @@ class XVTPChunk(ilff.Chunk):
     class XVTPItem(StructModel):
         struct: ClassVar = Struct("<3f")
 
-        unknown_01: float
-        unknown_02: float
-        unknown_03: float
+        position_x: float
+        position_y: float
+        position_z: float
 
     content: list[XVTPItem]
 
@@ -166,9 +166,9 @@ class CFTPChunk(ilff.Chunk):
     class CFTPItem(StructModel):
         struct: ClassVar = Struct("<3I")
 
-        unknown_01: NonNegativeInt
-        unknown_02: NonNegativeInt
-        unknown_03: NonNegativeInt
+        index_a: NonNegativeInt
+        index_b: NonNegativeInt
+        index_c: NonNegativeInt
 
     content: list[CFTPItem]
 
@@ -308,9 +308,9 @@ class XTRVChunk(ilff.RawChunk):
     class XTRVItem0(StructModel):
         struct: ClassVar = Struct("<8f")
 
-        pos_x: float
-        pos_y: float
-        pos_z: float
+        position_x: float
+        position_y: float
+        position_z: float
         normal_x: float
         normal_y: float
         normal_z: float
@@ -320,9 +320,9 @@ class XTRVChunk(ilff.RawChunk):
     class XTRVItem1(StructModel):
         struct: ClassVar = Struct("<9fHH")
 
-        pos_x: float
-        pos_y: float
-        pos_z: float
+        position_x: float
+        position_y: float
+        position_z: float
         normal_x: float
         normal_y: float
         normal_z: float
@@ -335,9 +335,9 @@ class XTRVChunk(ilff.RawChunk):
     class XTRVItem3(StructModel):
         struct: ClassVar = Struct("<7f")
 
-        pos_x: float
-        pos_y: float
-        pos_z: float
+        position_x: float
+        position_y: float
+        position_z: float
         unknown_01: float
         unknown_02: float
         unknown_03: float
@@ -421,13 +421,13 @@ class WOLGChunk(ilff.Chunk):
     class WOLGItem(StructModel):
         struct: ClassVar = Struct("<7fI")
 
-        pos_x: float
-        pos_y: float
-        pos_z: float
+        position_x: float
+        position_y: float
+        position_z: float
         radius: float
-        color_r: float
-        color_g: float
-        color_b: float
+        color_red: float
+        color_green: float
+        color_blue: float
         padding: int
 
     content: list[WOLGItem]
@@ -615,9 +615,9 @@ class XTVSChunk(ilff.Chunk):
     class XTVSItem(StructModel):
         struct: ClassVar = Struct("<3f")
 
-        pos_x: float
-        pos_y: float
-        pos_z: float
+        position_x: float
+        position_y: float
+        position_z: float
 
     content: list[XTVSItem]
 

@@ -18,7 +18,7 @@ MEF files store 3D mesh models for characters, objects, buildings, and vehicles.
 |  MANB - Bone Names (type 1 only)                  |
 +---------------------------------------------------+
 |  ATTA - Attachment Points (72 bytes per entry)     |
-|  XTVM - Material Positions                        |
+|  XTVM - MagicVertex Positions (16 bytes per entry) |
 |  TROP - Unknown (5 uint32 per entry)              |
 |  XVTP - Vertex Positions (float3 per entry)       |
 |  CFTP - Face Properties (3 uint32 per entry)      |
@@ -319,17 +319,18 @@ Names are truncated to 16 characters (e.g., "upper left finge" for "upper left f
 
 ## ATTA — Attachment Points
 
-72 bytes per entry. Defines named attachment slots on the model.
+72 bytes per entry. Defines named attachment slots on the model. Corresponds to the `AttachObject()` and `AttachObjectBoneID()` commands in the text source format.
 
 ```
 Offset  Size  Type      Field
 0       16    char[16]  Attachment name (null-padded ASCII)
-16      48    float[12] Transform data (position + quaternions)
-64      4     int32     Index A
-68      4     int32     Index B
+16      36    float[9]  3×3 rotation matrix (m00, m01, m02, m10, m11, m12, m20, m21, m22)
+52      12    float[3]  Position (x, y, z)
+64      4     int32     Attachment index (sequential: 0, 1, 2, ...)
+68      4     int32     Bone index (-1 = world space, ≥0 = attached to bone)
 ```
 
-Common attachment names: `shadow_1`, `weapon`, `helmet`, model-specific references.
+Common attachment names: `shadow_1`, `weapon`, `helmet`, model-specific references (e.g., `100_02_1` for sub-model attachments).
 
 | Entry count | Files |
 |-------------|-------|
@@ -482,10 +483,10 @@ Offset  Size  Type     Field
 
 | Chunk | Reversed | Entry size | Description |
 |-------|----------|------------|-------------|
-| XTVM | MVTX | 16 bytes (`<3fi`) | Material vertex positions |
+| XTVM | MVTX | 16 bytes (`<3fi`) | MagicVertex positions (position_x, position_y, position_z, param) — special vertices for glow, damage areas, or attachment helpers |
 | TROP | PORT | 20 bytes (`<5I`) | Unknown (portal/viewport data?) |
-| XVTP | PTVX | 12 bytes (`<3f`) | Vertex positions (subset) |
-| CFTP | PTFC | 12 bytes (`<3I`) | Face properties (subset) |
+| XVTP | PTVX | 12 bytes (`<3f`) | Source vertex positions (position_x, position_y, position_z) — original mesh vertices before D3D compilation |
+| CFTP | PTFC | 12 bytes (`<3I`) | Source face indices (index_a, index_b, index_c) — original triangle connectivity before D3D compilation |
 | TXAN | NAXT | varies | Texture animation (only 1 file in entire dataset) |
 
 ## Chunk Presence by Model Type
@@ -549,61 +550,136 @@ The `mef.py` parser successfully parses all 7,608 valid MEF files (100% coverage
 
 Previously fixed issues: ECAF handler, XTRVItem3 size, ATTA entry size, REIH/MANB/WOLG/HPRM handlers, DNERItem0 format, collision chunk sizes (XTVC 16→20, ECFC 8→12, TAMC 12→16).
 
+## Source Format (Text MEF)
+
+Binary MEF files are compiled from text source files using the `gconv.exe` tool (originally from a 3ds Max export pipeline). A set of 1,495 reverse-engineered text `.MEF` files provides the original source format, confirming the purpose of many binary chunks.
+
+### Compilation Pipeline
+
+```
+3ds Max → Text .MEF (source) → gconv.exe → Binary .mef (ILFF/OCEM)
+```
+
+The compiler script (`.qsc` file) specifies settings:
+
+```
+SetScale(40.96);
+SetTargetPlatform("PC");
+SetModelDirectory("models");
+SetTextureDirectory("textures");
+```
+
+### Text MEF Commands (22 total)
+
+**Material Section** (before `BreakScript()`):
+
+| Command | Args | Binary Target |
+|---------|------|---------------|
+| `NewObject(name)` | 1 | Object name metadata |
+| `Material(id, name, r,g,b, amb_r,g,b, spec_r,g,b, unk, unk, unk)` | 14 | Material properties |
+| `MaterialShininess(id, value)` | 2 | Material shininess |
+| `DiffuseTMap(id, path, u_tile, v_tile)` | 4 | Diffuse texture reference |
+| `OpacityTMap(id, path, u_tile, v_tile)` | 4 | Opacity texture (365 files) |
+| `ReflectionTMap(id, path, u_tile, v_tile)` | 4 | Reflection texture (23 files) |
+| `BumpTMap(id, path, u_tile, v_tile)` | 4 | Bump texture (4 files) |
+| `MaterialTransparencyType(id, type)` | 2 | Transparency mode |
+| `BreakScript()` | 0 | Section separator |
+
+**Bone Section** (type 1 only):
+
+| Command | Args | Binary Target |
+|---------|------|---------------|
+| `Bone(id, name, parent_id, x, y, z)` | 6 | REIH (hierarchy) + MANB (names) |
+| `BuildHierarchy()` | 0 | End of bone definitions |
+
+**Geometry Section:**
+
+| Command | Args | Binary Target |
+|---------|------|---------------|
+| `Vertex(id, x, y, z)` | 4 | XVTP (source positions) + compiled into XTRV |
+| `Normal(id, nx, ny, nz)` | 4 | Compiled into XTRV |
+| `Face(id, v0, v1, v2, n0, n1, n2, mat_id)` | 8 | CFTP (source indices) + ECAF + DNER |
+| `UV(id, u0, v0, u1, v1, u2, v2)` | 7 | Compiled into XTRV |
+| `VertexInfluenceRigid(bone_id, vtx_id, x, y, z, weight)` | 6 | Compiled into XTRV type 1 |
+
+**Optional Commands:**
+
+| Command | Args | Binary Target | Frequency |
+|---------|------|---------------|-----------|
+| `AttachObject(name, id, 9×rot, 3×pos)` | 14 | ATTA | 96 files |
+| `AttachObjectBoneID(id, bone_id)` | 2 | ATTA bone_index field | 96 files |
+| `MagicVertex(id, type, x, y, z, param)` | 6 | XTVM | 72 files |
+| `Glow(x, y, z, radius, r, g, b)` | 7 | WOLG | 150 files |
+| `MorphChannel(id, name)` | 2 | HPRM | 35 files |
+| `MorphVertex(ch_id, vtx_id, dx, dy, dz)` | 5 | HPRM | 35 files |
+
+### Compilation Transformations
+
+The compiler merges separate `Vertex`, `Normal`, and `UV` data into per-vertex `XTRV` entries. This involves vertex splitting: source vertices referenced by multiple faces with different normals or UVs are duplicated in the output. The `XVTP` and `CFTP` chunks preserve the original source indices.
+
+Material definitions, texture paths, and other metadata are consumed by the compiler to generate `D3DR` render state and `DNER` render groups but are not stored verbatim in the binary format.
+
 ## Open Questions
 
 ### Critical for Conversion
 
-These unknowns directly block or degrade MEF-to-OBJ/glTF conversion quality.
+- **Type-3 vertex UV coordinates**: The 4 floats after position in `XTRVItem3` (28 bytes) are not fully decoded. Fields at offsets 16 and 20 have ranges consistent with UV coordinates (offset 16: -3.0 to 1.0; offset 20: 0.0 to 1.0), but offset 12 (range -0.27 to 6.25) and offset 24 (0.0 to 1.0, few unique values) remain unclear. The text source format confirms that UV data exists (separate `UV()` commands), but the compilation into XTRVItem3 packs it differently than type 0/1. Affects 5,433 files (71% of all MEF).
 
-- **Material-to-texture mapping**: DNER `material_flags` (type 0/1) and the `uint16` pair at offset 12-14 (type 3) presumably reference textures, but the mapping to `.tex` filenames is unknown. Without this, exported meshes have no textures. Research approach: correlate DNER values with `.tex` files found in the same `.res` archive; look for filename tables in other game files (e.g., `.qvm` scripts, `.syn` files) that reference both model and texture names.
-
-- **Type-3 vertex UV coordinates**: The 4 floats after position in `XTRVItem3` (28 bytes) are not fully decoded. Fields at offsets 16 and 20 have ranges consistent with UV coordinates (offset 16: -3.0 to 1.0; offset 20: 0.0 to 1.0), but offset 12 (range -0.27 to 6.25) and offset 24 (0.0 to 1.0, few unique values) remain unclear. This affects 5,433 files (71% of all MEF). Research approach: render type-3 meshes with offsets 16/20 as UVs and visually compare against in-game screenshots; cross-reference offset 24 values with PMTL or DNER group indices to check if it's a material blend factor.
-
-- **Bone parent-child topology**: REIH stores bone type flags and rest-pose offsets but not explicit parent indices. The hierarchy is likely fixed per skeleton size (31, 47, or 28 bones). Without parent indices, skeletal meshes cannot be correctly exported to glTF/FBX. Research approach: reconstruct the 31-bone humanoid hierarchy from bone names (e.g., "lower left leg" is child of "upper left leg"); validate by computing world-space positions from rest-pose offsets and comparing against vertex positions; cross-reference with IFF animation files that use the same REIH format.
+- **Material-to-texture mapping in binary**: The text source format stores explicit texture paths via `DiffuseTMap()`, `OpacityTMap()`, etc. However, these paths are not stored in the binary format. DNER `material_flags` and related fields presumably encode texture references, but the mapping from binary fields to `.tex` filenames remains unknown.
 
 ### Important for Completeness
 
-These unknowns don't block basic geometry export but affect full-fidelity conversion.
+- **PMTL table (type 3 only)**: 4 `uint16` fields per entry. Purpose unknown.
 
-- **PMTL table (type 3 only)**: 4 `uint16` fields per entry, present in all 5,433 type-3 files. Purpose unknown. May be a per-group material property table (texture index, render flags, LOD level?). Research approach: correlate PMTL entry count with DNER render group count; check if any PMTL values match D3DR or DNER fields; compare PMTL across models that share the same visual appearance in-game.
+- **HPRM morph targets**: The text source confirms structure: `MorphChannel(id, name)` defines channels, `MorphVertex(ch_id, vtx_id, dx, dy, dz)` defines per-vertex deltas. However, the binary packing within the HPRM chunk varies between files and is not fully decoded.
 
-- **HPRM morph targets**: Variable-size entries (16 to 44+ bytes observed across 215 files). The vertex-index + position-delta hypothesis works for some files but not all. Research approach: group HPRM files by entry size; check if entry size correlates with model type (0 vs 1); for files where the hypothesis works, validate that deltas produce reasonable deformations when applied to XTRV positions.
-
-- **Type-1 extra vertices**: Skeletal meshes often have `D3DR[5]` (XTRV count) > `D3DR[4]` (DNER-referenced count). ECAF indices reference only the first `D3DR[4]` vertices. The extra vertices may be LOD data, morph targets, or collision proxies. Research approach: compare extra vertex positions against HPRM morph deltas; check if extra vertices form valid triangles with any known index buffer; visualize extra vertices separately to identify spatial patterns.
+- **Type-1 extra vertices**: Skeletal meshes often have `D3DR[5]` (XTRV count) > `D3DR[4]` (DNER-referenced count). The extra vertices may be LOD data, morph targets, or collision proxies.
 
 ### Low Priority / Nice to Have
 
-- **TROP chunk**: 5 `uint32` per entry, present in all files. Name reversed is "PORT" — possibly portal or viewport data for visibility culling. Research approach: check if TROP values reference DNER group indices or XVTP vertex indices; compare TROP data between indoor (buildings) and outdoor (vehicles) models.
+- **TROP chunk**: 5 `uint32` per entry. No text MEF equivalent found — likely generated by the compiler for portal/visibility data.
 
-- **XTVM chunk**: `float3 + int32` per entry. Name reversed is "MVTX" (material vertex?). May define material boundary vertices or texture coordinate anchor points. Research approach: visualize XTVM positions overlaid on the render mesh; check if the `int32` field indexes into DNER or PMTL.
+- **TXAN texture animation**: Only 1 file. Low priority.
 
-- **XVTP/CFTP relationship**: XVTP (float3 positions) and CFTP (3 uint32 face indices) form a secondary mesh. Likely a simplified collision or LOD mesh separate from the full HSMC collision system. Research approach: render XVTP/CFTP as a standalone mesh and compare bounding volume with the render mesh; check if CFTP indices stay within XVTP count bounds.
+### Resolved Questions
 
-- **TXAN texture animation**: Only 1 file in the entire dataset contains this chunk. Structure varies. Low priority unless that specific model is needed.
+These questions were answered by analysis of 1,495 reverse-engineered text MEF source files:
+
+- **Material-to-texture mapping (source level)**: ✅ SOLVED — `DiffuseTMap(id, path, u_tile, v_tile)` explicitly maps material IDs to texture file paths. Additional texture types: `OpacityTMap`, `ReflectionTMap`, `BumpTMap`.
+
+- **Bone parent-child topology**: ✅ SOLVED — `Bone(id, name, parent_id, x, y, z)` explicitly stores parent index. The REIH binary format stores BFS-ordered child counts instead, and parent indices are reconstructed via the `_build_parent_map()` algorithm in `iff_to_gltf.py`.
+
+- **ATTA fields**: ✅ SOLVED — `AttachObject(name, id, 9×rotation, 3×position)` confirms 3×3 rotation matrix + position. `AttachObjectBoneID(id, bone_index)` confirms the bone attachment field.
+
+- **XTVM purpose**: ✅ SOLVED — `MagicVertex(id, type, x, y, z, param)` — special vertex positions with parameter (often -1). Used for glow helpers, damage areas, or attachment points.
+
+- **XVTP/CFTP relationship**: ✅ SOLVED — XVTP stores original source vertex positions from `Vertex()` commands, CFTP stores original source face indices from `Face()` vertex indices. They represent the pre-compilation mesh before D3D vertex splitting and optimization.
+
+- **WOLG fields**: ✅ CONFIRMED — `Glow(x, y, z, radius, r, g, b)` matches the existing parser field names exactly.
 
 ## Research Priorities
 
 Ordered by impact on conversion quality:
 
-| Priority | Topic | Impact | Estimated Effort |
-|----------|-------|--------|-----------------|
-| 1 | Type-3 vertex UVs | Unlocks textured export for 71% of files | Medium — visual comparison with game |
-| 2 | Material-to-texture mapping | Enables textured export for all types | High — requires cross-file correlation |
-| 3 | Bone parent topology | Enables skeletal export (glTF/FBX) | Medium — 31-bone hierarchy from names |
-| 4 | PMTL table | Completes type-3 material data | Medium — statistical analysis |
-| 5 | HPRM morph targets | Enables facial animation export | High — variable structure |
-| 6 | Type-1 extra vertices | Clarifies skeletal mesh data | Low — non-blocking |
-| 7 | TROP/XTVM/XVTP/CFTP | Completes format documentation | Low — auxiliary data |
+| Priority | Topic | Impact | Status |
+|----------|-------|--------|--------|
+| 1 | Type-3 vertex UVs | Unlocks textured export for 71% of files | Open |
+| 2 | Material-to-texture mapping (binary) | Enables textured export for all types | Open (source-level solved) |
+| 3 | Bone parent topology | Enables skeletal export (glTF/FBX) | ✅ Solved |
+| 4 | PMTL table | Completes type-3 material data | Open |
+| 5 | HPRM morph targets | Enables facial animation export | Partially solved |
+| 6 | ATTA fields | Attachment point structure | ✅ Solved |
+| 7 | XTVM/XVTP/CFTP purpose | Completes format documentation | ✅ Solved |
 
 ### Conversion Readiness Summary
 
 | Model Type | Files | Geometry | UVs | Normals | Skeleton | Textures |
 |------------|-------|----------|-----|---------|----------|----------|
-| Type 0 (static) | 1,853 | Ready | Ready | Ready | N/A | Blocked |
-| Type 1 (skeletal) | 240 | Ready | Ready | Ready | Partially blocked | Blocked |
-| Type 3 (static) | 5,433 | Ready | Needs research | Missing | N/A | Blocked |
+| Type 0 (static) | 1,853 | Ready | Ready | Ready | N/A | Source paths known |
+| Type 1 (skeletal) | 240 | Ready | Ready | Ready | Ready (parent map algorithm) | Source paths known |
+| Type 3 (static) | 5,433 | Ready | Needs research | Missing | N/A | Source paths known |
 
-**Bottom line**: Untextured OBJ export is achievable now for type 0 and type 1. Type 3 needs UV field confirmation. Textured and skeletal exports require further research.
+**Bottom line**: Untextured OBJ export is achievable for type 0 and type 1. Skeletal export is now unblocked (bone parent reconstruction algorithm confirmed). Type 3 needs UV field confirmation. Texture paths are available from source files but not from binary format alone.
 
 ## See Also
 

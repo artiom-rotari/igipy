@@ -1,7 +1,7 @@
 """Export IFF skeletal animation to a self-contained glTF 2.0 file.
 
 Produces a skeleton-only animation (no mesh geometry). The result can be
-viewed in Blender, VS Code glTF Tools, or any glTF-compatible viewer.
+viewed in Blender, VS Code, glTF Tools, or any glTF-compatible viewer.
 Bones are represented as nodes; animation channels carry translation and
 rotation keyframes extracted from TNVE entries.
 """
@@ -33,6 +33,12 @@ UNSIGNED_SHORT = 5123
 # producing 1.787m (5'10") — the standard male character height.
 SCALE = 1 / 4096
 
+# Quaternion normalization threshold — magnitudes below this are treated as zero.
+QUATERNION_EPSILON = 1e-10
+
+# bone_index = 0xABABABAB is the MSVC debug heap fill sentinel meaning "no bone"
+ATTA_NO_BONE = 0xABABABAB
+
 # Coordinate system conversion: IGI2 uses Z-up (X=right, Y=forward, Z=up),
 # glTF uses Y-up right-handed (X=right, Y=up, -Z=forward).
 # Transform: (x, y, z) → (x, z, -y) for positions,
@@ -41,7 +47,7 @@ SCALE = 1 / 4096
 
 def _pos_to_gltf(x: float, y: float, z: float) -> tuple[float, float, float]:
     """Convert a position from IGI2 Z-up to glTF Y-up coordinates."""
-    return (x * SCALE, z * SCALE, -y * SCALE)
+    return x * SCALE, z * SCALE, -y * SCALE
 
 
 def _quat_to_gltf(x: float, y: float, z: float, w: float) -> tuple[float, float, float, float]:
@@ -85,6 +91,7 @@ _BONE_NAMES_31 = [
 ]
 
 
+# noinspection DuplicatedCode
 def _build_parent_map(child_counts: list[int]) -> list[int]:
     """Reconstruct parent indices from BFS-ordered child counts.
 
@@ -118,10 +125,10 @@ def _build_parent_map(child_counts: list[int]) -> list[int]:
 def _normalize_quat(x: float, y: float, z: float, w: float) -> tuple[float, float, float, float]:
     """Normalize a quaternion to unit length. Returns identity if zero-length."""
     length = math.sqrt(x * x + y * y + z * z + w * w)
-    if length < 1e-10:
-        return (0.0, 0.0, 0.0, 1.0)
+    if length < QUATERNION_EPSILON:
+        return 0.0, 0.0, 0.0, 1.0
     inv = 1.0 / length
-    return (x * inv, y * inv, z * inv, w * inv)
+    return x * inv, y * inv, z * inv, w * inv
 
 
 def _make_data_uri(raw: bytes) -> str:
@@ -195,30 +202,26 @@ def _collect_tracks(
     return trans, rots
 
 
-def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:
-    target_path: Path | None = source_path.with_suffix(".gltf") if source_path is not None else None
-    iff = IFF.model_validate_stream(source_io)
+class _GltfBufferBuilder:
+    """Accumulates binary buffer data and builds glTF accessors/bufferViews."""
 
-    bone_count = iff.dhna.bone_count
-    trans_tracks, rot_tracks = _collect_tracks(iff)
+    def __init__(self) -> None:
+        self.buffer = bytearray()
+        self.buffer_views: list[dict] = []
+        self.accessors: list[dict] = []
 
-    # --- Build binary buffer ---
-    buf = bytearray()
-    buffer_views: list[dict] = []
-    accessors: list[dict] = []
-
-    def add_scalar_accessor(times: list[float]) -> int:
+    def add_scalar_accessor(self, times: list[float]) -> int:
         """Append a SCALAR float accessor and return its index."""
-        offset = len(buf)
+        offset = len(self.buffer)
         for t in times:
-            buf.extend(struct.pack("<f", t))
-        byte_length = len(buf) - offset
-        bv_idx = len(buffer_views)
-        buffer_views.append({"buffer": 0, "byteOffset": offset, "byteLength": byte_length})
-        acc_idx = len(accessors)
-        accessors.append(
+            self.buffer.extend(struct.pack("<f", t))
+        byte_length = len(self.buffer) - offset
+        buffer_view_index = len(self.buffer_views)
+        self.buffer_views.append({"buffer": 0, "byteOffset": offset, "byteLength": byte_length})
+        accessor_index = len(self.accessors)
+        self.accessors.append(
             {
-                "bufferView": bv_idx,
+                "bufferView": buffer_view_index,
                 "componentType": FLOAT,
                 "count": len(times),
                 "type": "SCALAR",
@@ -226,22 +229,22 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
                 "max": [max(times)],
             }
         )
-        return acc_idx
+        return accessor_index
 
-    def add_vec3_accessor(values: list[tuple[float, float, float]]) -> int:
+    def add_vec3_accessor(self, values: list[tuple[float, float, float]]) -> int:
         """Append a VEC3 float accessor and return its index."""
-        offset = len(buf)
+        offset = len(self.buffer)
         for v in values:
-            buf.extend(struct.pack("<3f", *v))
-        byte_length = len(buf) - offset
-        bv_idx = len(buffer_views)
-        buffer_views.append({"buffer": 0, "byteOffset": offset, "byteLength": byte_length})
-        acc_idx = len(accessors)
+            self.buffer.extend(struct.pack("<3f", *v))
+        byte_length = len(self.buffer) - offset
+        buffer_view_index = len(self.buffer_views)
+        self.buffer_views.append({"buffer": 0, "byteOffset": offset, "byteLength": byte_length})
+        accessor_index = len(self.accessors)
         mins = [min(v[i] for v in values) for i in range(3)]
         maxs = [max(v[i] for v in values) for i in range(3)]
-        accessors.append(
+        self.accessors.append(
             {
-                "bufferView": bv_idx,
+                "bufferView": buffer_view_index,
                 "componentType": FLOAT,
                 "count": len(values),
                 "type": "VEC3",
@@ -249,22 +252,22 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
                 "max": maxs,
             }
         )
-        return acc_idx
+        return accessor_index
 
-    def add_vec4_accessor(values: list[tuple[float, float, float, float]]) -> int:
+    def add_vec4_accessor(self, values: list[tuple[float, float, float, float]]) -> int:
         """Append a VEC4 float accessor and return its index."""
-        offset = len(buf)
+        offset = len(self.buffer)
         for v in values:
-            buf.extend(struct.pack("<4f", *v))
-        byte_length = len(buf) - offset
-        bv_idx = len(buffer_views)
-        buffer_views.append({"buffer": 0, "byteOffset": offset, "byteLength": byte_length})
-        acc_idx = len(accessors)
+            self.buffer.extend(struct.pack("<4f", *v))
+        byte_length = len(self.buffer) - offset
+        buffer_view_index = len(self.buffer_views)
+        self.buffer_views.append({"buffer": 0, "byteOffset": offset, "byteLength": byte_length})
+        accessor_index = len(self.accessors)
         mins = [min(v[i] for v in values) for i in range(4)]
         maxs = [max(v[i] for v in values) for i in range(4)]
-        accessors.append(
+        self.accessors.append(
             {
-                "bufferView": bv_idx,
+                "bufferView": buffer_view_index,
                 "componentType": FLOAT,
                 "count": len(values),
                 "type": "VEC4",
@@ -272,15 +275,42 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
                 "max": maxs,
             }
         )
-        return acc_idx
+        return accessor_index
 
-    # --- Nodes: one per bone, using the correct tree hierarchy ---
-    # REIH rest-pose offsets are already parent-relative (bone-local translations).
-    # Evidence: bones 10-12 (rotation helpers) have (0,0,0) = co-located with parent,
-    # and offsets for bones 1-30 stay constant across animations while bone 0 varies.
+
+def _add_attachment_nodes(iff: IFF, nodes: list[dict], bone_count: int) -> list[int]:
+    """Add ATTA attachment point nodes and return indices of unparented ones."""
+    unparented: list[int] = []
+    if not iff.atta:
+        return unparented
+
+    for item in iff.atta.content:
+        name = item.name.rstrip(b"\x00").decode("ascii", errors="replace")
+        att_node: dict = {
+            "name": f"attach_{name}",
+            "translation": list(_pos_to_gltf(item.position_x, item.position_y, item.position_z)),
+            "rotation": list(
+                _quat_to_gltf(item.orientation_x, item.orientation_y, item.orientation_z, item.orientation_w)
+            ),
+        }
+        att_idx = len(nodes)
+        nodes.append(att_node)
+        if item.bone_index != ATTA_NO_BONE and 0 <= item.bone_index < bone_count:
+            nodes[item.bone_index].setdefault("children", []).append(att_idx)
+        else:
+            unparented.append(att_idx)
+
+    return unparented
+
+
+def _build_skeleton_nodes(iff: IFF, bone_count: int) -> tuple[list[dict], list[int]]:
+    """Build glTF node list from skeleton hierarchy and attachment points.
+
+    Returns (nodes, scene_nodes) where scene_nodes lists root-level node indices.
+    """
     parent_map = _build_parent_map(iff.reih.bone_child_counts)
     raw_offsets = list(iff.reih.rest_pose_offsets) if iff.reih.rest_pose_offsets else []
-    bone_names = _BONE_NAMES_31 if bone_count == 31 else None
+    bone_names = _BONE_NAMES_31 if bone_count == len(_BONE_NAMES_31) else None
 
     nodes: list[dict] = []
     for i in range(bone_count):
@@ -297,34 +327,26 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
         if 0 <= parent_idx < bone_count:
             nodes[parent_idx].setdefault("children", []).append(i)
 
-    # Attachment point nodes (after bone nodes, parented to their bone)
-    # bone_index = 0xABABABAB is the MSVC debug heap fill sentinel meaning "no bone"
-    _ATTA_NO_BONE = 0xABABABAB
-    if iff.atta:
-        for item in iff.atta.content:
-            name = item.name.rstrip(b"\x00").decode("ascii", errors="replace")
-            att_node: dict = {
-                "name": f"attach_{name}",
-                "translation": list(_pos_to_gltf(item.position_x, item.position_y, item.position_z)),
-                "rotation": list(
-                    _quat_to_gltf(item.orientation_x, item.orientation_y, item.orientation_z, item.orientation_w)
-                ),
-            }
-            att_idx = len(nodes)
-            nodes.append(att_node)
-            if item.bone_index != _ATTA_NO_BONE and 0 <= item.bone_index < bone_count:
-                nodes[item.bone_index].setdefault("children", []).append(att_idx)
+    # Attachment points + unparented attachment scene nodes
+    unparented_attachments = _add_attachment_nodes(iff, nodes, bone_count)
 
-    # --- Scene: only root bones are scene nodes, rest are children ---
+    # Scene nodes: root bones + unparented attachments
     scene_nodes = [i for i in range(bone_count) if parent_map[i] == -1]
-    # Add unparented attachment nodes (no-bone sentinel or bone_index out of range)
-    if iff.atta:
-        for i, item in enumerate(iff.atta.content):
-            att_idx = bone_count + i
-            if item.bone_index == _ATTA_NO_BONE or item.bone_index < 0 or item.bone_index >= bone_count:
-                scene_nodes.append(att_idx)
+    scene_nodes.extend(unparented_attachments)
 
-    # --- Animation channels + samplers ---
+    return nodes, scene_nodes
+
+
+def _build_animation(
+    builder: _GltfBufferBuilder,
+    trans_tracks: dict[int, list[tuple[float, tuple[float, float, float]]]],
+    rot_tracks: dict[int, list[tuple[float, tuple[float, float, float, float]]]],
+    bone_count: int,
+) -> tuple[list[dict], list[dict]]:
+    """Build glTF animation channels and samplers from keyframe tracks.
+
+    Returns (channels, samplers).
+    """
     channels: list[dict] = []
     samplers: list[dict] = []
 
@@ -333,8 +355,8 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
             continue
         times = [kf[0] for kf in track]
         values = [kf[1] for kf in track]
-        time_acc = add_scalar_accessor(times)
-        value_acc = add_vec3_accessor(values)
+        time_acc = builder.add_scalar_accessor(times)
+        value_acc = builder.add_vec3_accessor(values)
         sampler_idx = len(samplers)
         samplers.append({"input": time_acc, "output": value_acc, "interpolation": "LINEAR"})
         channels.append({"sampler": sampler_idx, "target": {"node": bone_idx, "path": "translation"}})
@@ -344,13 +366,27 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
             continue
         times = [kf[0] for kf in track]
         values = [kf[1] for kf in track]
-        time_acc = add_scalar_accessor(times)
-        value_acc = add_vec4_accessor(values)
+        time_acc = builder.add_scalar_accessor(times)
+        value_acc = builder.add_vec4_accessor(values)
         sampler_idx = len(samplers)
         samplers.append({"input": time_acc, "output": value_acc, "interpolation": "LINEAR"})
         channels.append({"sampler": sampler_idx, "target": {"node": bone_idx, "path": "rotation"}})
 
-    # --- Assemble glTF ---
+    return channels, samplers
+
+
+def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:
+    target_path: Path | None = source_path.with_suffix(".gltf") if source_path is not None else None
+    iff = IFF.model_validate_stream(source_io)
+
+    bone_count = iff.dhna.bone_count
+    trans_tracks, rot_tracks = _collect_tracks(iff)
+
+    builder = _GltfBufferBuilder()
+    nodes, scene_nodes = _build_skeleton_nodes(iff, bone_count)
+    channels, samplers = _build_animation(builder, trans_tracks, rot_tracks, bone_count)
+
+    # Assemble glTF
     gltf: dict = {
         "asset": {"version": "2.0", "generator": "igipy"},
         "scene": 0,
@@ -361,11 +397,11 @@ def iff_to_gltf(source_io: BytesIO, source_path: Path | None = None) -> tuple[By
     if channels:
         gltf["animations"] = [{"name": iff.dhna.name, "channels": channels, "samplers": samplers}]
 
-    if buffer_views:
-        buf_bytes = bytes(buf)
-        gltf["buffers"] = [{"uri": _make_data_uri(buf_bytes), "byteLength": len(buf_bytes)}]
-        gltf["bufferViews"] = buffer_views
-        gltf["accessors"] = accessors
+    if builder.buffer_views:
+        buffer_bytes = bytes(builder.buffer)
+        gltf["buffers"] = [{"uri": _make_data_uri(buffer_bytes), "byteLength": len(buffer_bytes)}]
+        gltf["bufferViews"] = builder.buffer_views
+        gltf["accessors"] = builder.accessors
 
     target_io = BytesIO()
     target_io.write(json.dumps(gltf, indent=2).encode("utf-8"))

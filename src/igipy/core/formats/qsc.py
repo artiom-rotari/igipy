@@ -126,6 +126,7 @@ class AssignStatement(Statement):
     value: Expression
 
 
+# noinspection PyStringConversionWithoutDunderMethod
 class Stack(BaseModel):
     root: list[AST] = []
 
@@ -156,6 +157,7 @@ class Stack(BaseModel):
         return True
 
 
+# noinspection PyUnusedLocal
 class QSC(FileModel):
     indent_width: int = 1
     indent_char: str = "\t"
@@ -176,6 +178,7 @@ class QSC(FileModel):
 
     @singledispatchmethod
     def to_str(self, node: AST, indent: int = 0, parent_precedence: int = 0) -> str:
+        # noinspection PyStringConversionWithoutDunderMethod
         raise NotImplementedError(f"Not implemented for {type(node)}")
 
     @to_str.register

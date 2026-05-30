@@ -14,11 +14,13 @@ from igipy.igi2.formats.iff import (
 )
 
 # BEF positions = IFF game-unit positions / 40.96 (where 40.96 = 4096/100)
-_POS_SCALE = 4096 / 100
+_POSITION_SCALE = 4096 / 100
+# Trigger bones with index >= this threshold are world-space (no bone attachment)
+_WORLD_SPACE_BONE = 0xFFFF_0000
 
 
-def _pos(v: float) -> float:
-    return v / _POS_SCALE
+def _scale_position(v: float) -> float:
+    return v / _POSITION_SCALE
 
 
 def _call(name: str, *args: float | str) -> ExprStatement:
@@ -31,6 +33,7 @@ def _call(name: str, *args: float | str) -> ExprStatement:
     return ExprStatement(expression=Call(function=name, arguments=arguments))
 
 
+# noinspection DuplicatedCode
 def _build_parent_map(child_counts: list[int]) -> list[int]:
     n = len(child_counts)
     parents = [-1] * n
@@ -52,10 +55,12 @@ def _build_parent_map(child_counts: list[int]) -> list[int]:
     return parents
 
 
-def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:
+# noinspection DuplicatedCode
+def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:  # noqa: C901
     target_path: Path | None = source_path.with_suffix(".bef") if source_path is not None else None
     iff = IFF.model_validate_stream(source_io)
 
+    # noinspection PyListCreation
     statements: list[ExprStatement] = []
 
     # AnimInit(name, version, duration+1, looping)  # noqa: ERA001
@@ -66,7 +71,8 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
     parent_map = _build_parent_map(iff.reih.bone_child_counts)
     for i in range(iff.dhna.bone_count):
         x, y, z = iff.reih.rest_pose_offsets[i]
-        statements.append(_call("Bone", i, f"Bone # {i:02d}", parent_map[i], _pos(x), _pos(y), _pos(z)))
+        sx, sy, sz = _scale_position(x), _scale_position(y), _scale_position(z)
+        statements.append(_call("Bone", i, f"Bone # {i:02d}", parent_map[i], sx, sy, sz))
     statements.append(_call("BuildHierarchy"))
 
     # AnimAttachObject + AnimAttachObjectBoneID (optional)  # noqa: ERA001
@@ -87,9 +93,9 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     item.secondary_z,
                     item.secondary_w,
                     item.unknown_float,
-                    _pos(item.position_x),
-                    _pos(item.position_y),
-                    _pos(item.position_z),
+                    _scale_position(item.position_x),
+                    _scale_position(item.position_y),
+                    _scale_position(item.position_z),
                 )
             )
             statements.append(_call("AnimAttachObjectBoneID", i, item.bone_index))
@@ -109,9 +115,9 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     entry.bone_index,
                     0,
                     entry.frame_offset,
-                    _pos(entry.position_x),
-                    _pos(entry.position_y),
-                    _pos(entry.position_z),
+                    _scale_position(entry.position_x),
+                    _scale_position(entry.position_y),
+                    _scale_position(entry.position_z),
                 )
             )
 
@@ -139,7 +145,7 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
 
         elif isinstance(entry, TNVETrigger):
             event_code = entry.event_code & 0xFFFF
-            trigger_bone = entry.trigger_bone if entry.trigger_bone < 0xFFFF_0000 else -1
+            trigger_bone = entry.trigger_bone if entry.trigger_bone < _WORLD_SPACE_BONE else -1
             statements.append(
                 _call(
                     "TriggerData",
@@ -147,9 +153,9 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     event_code,
                     entry.frame_offset,
                     trigger_bone,
-                    _pos(entry.position_x),
-                    _pos(entry.position_y),
-                    _pos(entry.position_z),
+                    _scale_position(entry.position_x),
+                    _scale_position(entry.position_y),
+                    _scale_position(entry.position_z),
                 )
             )
             trigger_index += 1
@@ -161,9 +167,9 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     entry.bone_index,
                     0,
                     entry.frame_offset,
-                    _pos(entry.position_x),
-                    _pos(entry.position_y),
-                    _pos(entry.position_z),
+                    _scale_position(entry.position_x),
+                    _scale_position(entry.position_y),
+                    _scale_position(entry.position_z),
                 )
             )
             statements.append(
@@ -194,9 +200,9 @@ def iff_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     entry.bone_index,
                     0,
                     entry.frame_offset,
-                    _pos(entry.position_x),
-                    _pos(entry.position_y),
-                    _pos(entry.position_z),
+                    _scale_position(entry.position_x),
+                    _scale_position(entry.position_y),
+                    _scale_position(entry.position_z),
                 )
             )
             statements.append(
