@@ -2,9 +2,11 @@
 
 # MEF Format — 3D Mesh Model
 
-MEF files store 3D mesh models for characters, objects, buildings, and vehicles. They are located in `models/` directories inside `.res` archives and use IGI's ILFF container format with content type `OCEM` (MECO reversed). Three model types exist: static geometry (type 0), skeletal meshes with bone weights (type 1), and static geometry with per-material data (type 3).
+MEF files store 3D mesh models for characters, objects, buildings, and vehicles. They are located in `models/` directories inside `.res` archives and use IGI's ILFF container format with content type `OCEM` (MECO reversed). Two structural variants exist: **standard** (7,526 files) with full render mesh data in three model types (0, 1, 3), and **SEMS** (82 files) containing only a simplified collision mesh.
 
 ## Structure Overview
+
+### Standard Variant (7,526 files)
 
 ```
 +---------------------------------------------------+
@@ -21,32 +23,49 @@ MEF files store 3D mesh models for characters, objects, buildings, and vehicles.
 |  XVTP - Vertex Positions (float3 per entry)       |
 |  CFTP - Face Properties (3 uint32 per entry)      |
 +---------------------------------------------------+
+|  WOLG - Glow Points (optional, before D3DR)       |
++---------------------------------------------------+
 |  D3DR - Render State (36/40/44 bytes by type)     |
 |  ECAF - Render Faces (uint16 triangle indices)    |
 |  DNER - Render Groups (28 or 32 bytes per entry)  |
 |  XTRV - Vertices (28/32/40 bytes by type)         |
 +---------------------------------------------------+
 |  PMTL - Material Table (type 3 only)              |
-|  WOLG - Glow Points (type 0/3 only, optional)     |
-|  HPRM - Morph Targets (type 0/1 only, optional)   |
-|  TXAN - Texture Animation (1 file only)           |
 +---------------------------------------------------+
 |  HSMC - Collision Header (optional)               |
-|  XTVC - Collision Vertices (repeated per submesh) |
-|  ECFC - Collision Faces (repeated per submesh)    |
-|  TAMC - Collision Materials (repeated per submesh)|
-|  HPSC - Collision Spheres (repeated per submesh)  |
+|  XTVC - Collision Vertices (repeated ×2)          |
+|  ECFC - Collision Faces (repeated ×2)             |
+|  TAMC - Collision Materials (repeated ×2)         |
+|  HPSC - Collision Spheres (repeated ×2)           |
++---------------------------------------------------+
+|  HPRM - Morph Targets (optional, after collision) |
+|  TXAN - Texture Animation (1 file only)           |
 +---------------------------------------------------+
 ```
 
-All chunk fourccs are reversed names: HSEM=MESH, ECAF=FACE, DNER=REND, XTRV=VRTX, XTVM=MVTX, TROP=PORT, XVTP=PTVX, CFTP=PTFC, ATTA=ATTA, WOLG=GLOW, HPRM=MRPH, PMTL=LTMP, HSMC=CMSH, XTVC=CVTX, ECFC=CFCE, TAMC=CMAT, HPSC=CSPH, REIH=HIER, MANB=BNAM.
+### SEMS Variant — Simplified Collision Mesh (82 files)
+
+```
++---------------------------------------------------+
+|  ILFF Header (content_type = "OCEM")              |
++---------------------------------------------------+
+|  SEMS - Submesh Header (28 bytes per entry)       |
+|  XTVS - Simplified Vertices (12 bytes per entry)  |
+|  CAFS - Simplified Faces (28 bytes per entry)     |
+|  EGDE - Edge List (8 bytes per entry)             |
++---------------------------------------------------+
+```
+
+All chunk fourccs are reversed names: HSEM=MESH, ECAF=FACE, DNER=REND, XTRV=VRTX, XTVM=MVTX, TROP=PORT, XVTP=PTVX, CFTP=PTFC, ATTA=ATTA, WOLG=GLOW, HPRM=MRPH, PMTL=LTMP, HSMC=CMSH, XTVC=CVTX, ECFC=CFCE, TAMC=CMAT, HPSC=CSPH, REIH=HIER, MANB=BNAM, SEMS=SMES, XTVS=SVTX, CAFS=SFAC, EGDE=EDGE.
 
 ## Statistics
 
 | Metric | Value |
 |--------|-------|
 | Total files | 7,609 |
-| Valid OCEM files | 7,608 (1 non-OCEM: `menusystem/models/minefield.mef`) |
+| Valid OCEM files | 7,608 (1 non-ILFF: `menusystem/models/minefield.mef`) |
+| Standard variant | 7,526 files (HSEM-based render mesh) |
+| SEMS variant | 82 files (simplified collision mesh only) |
 | Location | `models/` directories inside `.res` archives |
 | Size range | 416 -- 1,663,236 bytes |
 | Type 0 (static) | 1,853 files |
@@ -143,7 +162,7 @@ Offset  Size  Type     Field
 24      4     float    Unknown (range 0.0 to 1.0, few unique values per model)
 ```
 
-The existing codebase incorrectly defines `XTRVItem3` as `Struct("<10f")` (40 bytes). The actual type-3 vertex is 28 bytes, validated across all 5,433 type-3 files.
+Validated as 28 bytes across all 5,433 type-3 files.
 
 ## ECAF — Render Faces
 
@@ -154,7 +173,7 @@ face_count = len(ECAF) / 6
 max_index  = render_vertex_count - 1
 ```
 
-This chunk is present in all 7,608 valid MEF files but is **missing from the code's `chunk_mapping`** — the parser does not handle it.
+Present in all 7,526 standard variant files.
 
 ## DNER — Render Groups
 
@@ -300,7 +319,7 @@ Names are truncated to 16 characters (e.g., "upper left finge" for "upper left f
 
 ## ATTA — Attachment Points
 
-72 bytes per entry (the existing code incorrectly uses 68). Defines named attachment slots on the model.
+72 bytes per entry. Defines named attachment slots on the model.
 
 ```
 Offset  Size  Type      Field
@@ -362,7 +381,7 @@ Offset  Size  Type     Field
 
 ## Collision Mesh
 
-Optional collision data present in approximately 42% of files. Consists of a header chunk (HSMC) followed by paired data chunks that repeat per collision submesh.
+Optional collision data present in 3,205 files (42%). Always structured as 2 submeshes: HSMC contains 2 entries, the second submesh is always empty (zero counts). Each submesh has its own XTVC/ECFC/TAMC/HPSC chunk set.
 
 ### HSMC — Collision Header
 
@@ -375,35 +394,88 @@ Offset  Size  Type     Field
 16      16    uint32[4] Zeros
 ```
 
-One HSMC item per collision submesh. The counts index into the following XTVC/ECFC/TAMC/HPSC chunk arrays.
+One HSMC item per collision submesh (always 2). The counts match the number of entries in the corresponding XTVC/ECFC/TAMC/HPSC chunks for that submesh.
 
-### XTVC — Collision Vertices
-
-```
-Offset  Size  Type     Field
-0       16    float4   Position (x, y, z, w)
-```
-
-### ECFC — Collision Faces
+### XTVC — Collision Vertices (20 bytes per entry)
 
 ```
 Offset  Size  Type     Field
-0       8     uint16[4] Triangle indices + material reference
+0       20    float[5] Position + unknown (x, y, z, w, unknown)
 ```
 
-### TAMC — Collision Materials
-
-```
-Offset  Size  Type     Field
-0       12    int16[6] Material properties
-```
-
-### HPSC — Collision Spheres
+### ECFC — Collision Faces (12 bytes per entry)
 
 ```
 Offset  Size  Type     Field
-0       16    float4   Sphere center + radius (x, y, z, r)
-4       8     int16[4] Hierarchy indices
+0       12    uint16[6] Triangle indices + material/flags
+```
+
+### TAMC — Collision Materials (16 bytes per entry)
+
+```
+Offset  Size  Type     Field
+0       16    int16[8] Material properties
+```
+
+### HPSC — Collision Spheres (24 bytes per entry)
+
+```
+Offset  Size  Type     Field
+0       16    float[4] Sphere center + radius (x, y, z, r)
+16      8     int16[4] Hierarchy indices
+```
+
+## SEMS Variant — Simplified Collision Mesh
+
+82 files use a simplified collision-only format with no render mesh data. The first chunk is `SEMS` instead of `HSEM`. These files contain collision geometry as convex submeshes with face plane equations and edge lists.
+
+### SEMS — Submesh Header (28 bytes per entry)
+
+The chunk fourcc `SEMS` is `SMES` reversed. Each entry defines offsets and counts into the XTVS, CAFS, and EGDE arrays for one convex submesh.
+
+```
+Offset  Size  Type    Field
+0       4     int32   CAFS start index
+4       4     int32   XTVS start index
+8       4     int32   EGDE start index
+12      4     int32   CAFS count (faces in this submesh)
+16      4     int32   XTVS count (vertices in this submesh)
+20      4     int32   EGDE count (edges in this submesh)
+24      4     int32   Sentinel (always -1)
+```
+
+### XTVS — Simplified Vertices (12 bytes per entry)
+
+The chunk fourcc `XTVS` is `SVTX` reversed. Float3 vertex positions.
+
+```
+Offset  Size  Type     Field
+0       12    float3   Position (x, y, z)
+```
+
+### CAFS — Simplified Faces (28 bytes per entry)
+
+The chunk fourcc `CAFS` is `SFAC` reversed. Each face stores 3 vertex indices and a plane equation (normal + distance).
+
+```
+Offset  Size  Type     Field
+0       4     uint32   Vertex index A
+4       4     uint32   Vertex index B
+8       4     uint32   Vertex index C
+12      4     float    Normal X
+16      4     float    Normal Y
+20      4     float    Normal Z
+24      4     float    Distance (plane equation d)
+```
+
+### EGDE — Edge List (8 bytes per entry)
+
+The chunk fourcc `EGDE` is `EDGE` reversed. Each edge connects two vertices.
+
+```
+Offset  Size  Type     Field
+0       4     uint32   Vertex index A
+4       4     uint32   Vertex index B
 ```
 
 ## Other Chunks
@@ -418,7 +490,9 @@ Offset  Size  Type     Field
 
 ## Chunk Presence by Model Type
 
-| Chunk | Type 0 | Type 1 | Type 3 |
+### Standard Variant (7,526 files)
+
+| Chunk | Type 0 (1,853) | Type 1 (240) | Type 3 (5,433) |
 |-------|--------|--------|--------|
 | HSEM | Always | Always | Always |
 | ATTA | Always | Always | Always |
@@ -438,25 +512,98 @@ Offset  Size  Type     Field
 | HSMC+ | 750 files | 99 files | 2,356 files |
 | TXAN | 1 file | Never | Never |
 
-## Known Code Issues
+### SEMS Variant (82 files)
 
-The existing `mef.py` parser has several issues identified during this research:
+| Chunk | Present |
+|-------|---------|
+| SEMS | Always |
+| XTVS | Always |
+| CAFS | Always |
+| EGDE | Always |
 
-1. **Missing ECAF handler**: The `chunk_mapping` does not include `b"ECAF"`, so render face data is silently dropped during parsing.
-2. **Wrong XTRVItem3 size**: `XTRVItem3 = Struct("<10f")` defines 40 bytes, but type-3 vertices are 28 bytes. This causes parse failures for all 5,433 type-3 files.
-3. **Wrong ATTA entry size**: `ATTAItem = Struct("<16s12fi")` defines 68 bytes, but entries are 72 bytes.
-4. **Missing REIH/MANB handlers**: Skeletal bone hierarchy and bone name chunks are not in `chunk_mapping`.
-5. **Missing WOLG handler**: Glow point data is silently dropped.
-6. **Missing HPRM handler**: Morph target data is silently dropped.
-7. **DNERItem0 variable-size assumption**: The code treats type-0 DNER as variable-length (`3f+8H` + tail), but entries are fixed 32 bytes.
+## Chunk Combinations
+
+15 unique chunk sequences observed across 7,608 OCEM files. Collision data (HSMC+) always has exactly 2 submeshes (second is empty).
+
+| # | Sequence | Count |
+|---|----------|-------|
+| 1 | HSEM→ATTA→XTVM→TROP→XVTP→CFTP→D3DR→ECAF→DNER→XTRV→PMTL | 2,534 |
+| 2 | …→XTRV→PMTL→HSMC→(XTVC→ECFC→TAMC→HPSC)×2 | 2,014 |
+| 3 | …→XTRV (base only, no optional chunks) | 976 |
+| 4 | …→XTRV→HSMC→(XTVC→ECFC→TAMC→HPSC)×2 | 592 |
+| 5 | …→WOLG→D3DR→…→XTRV→PMTL | 543 |
+| 6 | …→WOLG→…→PMTL→HSMC→(collision)×2 | 342 |
+| 7 | HSEM→REIH→MANB→ATTA→…→XTRV | 141 |
+| 8 | …→XTRV→HSMC→(collision)×2→HPRM | 110 |
+| 9 | **SEMS→XTVS→CAFS→EGDE** | **82** |
+| 10 | …→XTRV→HPRM | 68 |
+| 11 | HSEM→REIH→MANB→…→HSMC→(collision)×2 | 62 |
+| 12 | …→WOLG→…→XTRV | 59 |
+| 13 | …→WOLG→…→HSMC→(collision)×2 | 47 |
+| 14 | HSEM→REIH→MANB→…→HSMC→(collision)×2→HPRM | 37 |
+| 15 | …→HSMC→(collision)×2→TXAN | 1 |
+
+## Parser Status
+
+The `mef.py` parser successfully parses all 7,608 valid MEF files (100% coverage). Both the standard variant (7,526 files) and the SEMS variant (82 files) are supported.
+
+Previously fixed issues: ECAF handler, XTRVItem3 size, ATTA entry size, REIH/MANB/WOLG/HPRM handlers, DNERItem0 format, collision chunk sizes (XTVC 16→20, ECFC 8→12, TAMC 12→16).
 
 ## Open Questions
 
-- **Type-3 vertex fields**: The 4 fields after position in type-3 vertices are not fully understood. Fields at offsets 16 and 20 are likely UV coordinates, but offset 12 and 24 need more investigation.
-- **HPRM internal structure**: Morph target entries have variable sizes across files. The vertex index + delta hypothesis works for some files but not all.
-- **DNER material flags**: The `uint32` at offset 0 in type-0/1 DNER entries (and `uint16` pair at offset 12-14 in type-3) likely reference materials or textures, but the mapping is unknown.
-- **Type-1 extra vertices**: Skeletal meshes often have more XTRV vertices than DNER/ECAF reference. The purpose of these extra vertices (D3DR[3]) is unclear.
-- **Parent-child bone indices**: REIH stores bone type flags and rest-pose offsets but not explicit parent indices. The hierarchy topology may be fixed per skeleton type.
+### Critical for Conversion
+
+These unknowns directly block or degrade MEF-to-OBJ/glTF conversion quality.
+
+- **Material-to-texture mapping**: DNER `material_flags` (type 0/1) and the `uint16` pair at offset 12-14 (type 3) presumably reference textures, but the mapping to `.tex` filenames is unknown. Without this, exported meshes have no textures. Research approach: correlate DNER values with `.tex` files found in the same `.res` archive; look for filename tables in other game files (e.g., `.qvm` scripts, `.syn` files) that reference both model and texture names.
+
+- **Type-3 vertex UV coordinates**: The 4 floats after position in `XTRVItem3` (28 bytes) are not fully decoded. Fields at offsets 16 and 20 have ranges consistent with UV coordinates (offset 16: -3.0 to 1.0; offset 20: 0.0 to 1.0), but offset 12 (range -0.27 to 6.25) and offset 24 (0.0 to 1.0, few unique values) remain unclear. This affects 5,433 files (71% of all MEF). Research approach: render type-3 meshes with offsets 16/20 as UVs and visually compare against in-game screenshots; cross-reference offset 24 values with PMTL or DNER group indices to check if it's a material blend factor.
+
+- **Bone parent-child topology**: REIH stores bone type flags and rest-pose offsets but not explicit parent indices. The hierarchy is likely fixed per skeleton size (31, 47, or 28 bones). Without parent indices, skeletal meshes cannot be correctly exported to glTF/FBX. Research approach: reconstruct the 31-bone humanoid hierarchy from bone names (e.g., "lower left leg" is child of "upper left leg"); validate by computing world-space positions from rest-pose offsets and comparing against vertex positions; cross-reference with IFF animation files that use the same REIH format.
+
+### Important for Completeness
+
+These unknowns don't block basic geometry export but affect full-fidelity conversion.
+
+- **PMTL table (type 3 only)**: 4 `uint16` fields per entry, present in all 5,433 type-3 files. Purpose unknown. May be a per-group material property table (texture index, render flags, LOD level?). Research approach: correlate PMTL entry count with DNER render group count; check if any PMTL values match D3DR or DNER fields; compare PMTL across models that share the same visual appearance in-game.
+
+- **HPRM morph targets**: Variable-size entries (16 to 44+ bytes observed across 215 files). The vertex-index + position-delta hypothesis works for some files but not all. Research approach: group HPRM files by entry size; check if entry size correlates with model type (0 vs 1); for files where the hypothesis works, validate that deltas produce reasonable deformations when applied to XTRV positions.
+
+- **Type-1 extra vertices**: Skeletal meshes often have `D3DR[5]` (XTRV count) > `D3DR[4]` (DNER-referenced count). ECAF indices reference only the first `D3DR[4]` vertices. The extra vertices may be LOD data, morph targets, or collision proxies. Research approach: compare extra vertex positions against HPRM morph deltas; check if extra vertices form valid triangles with any known index buffer; visualize extra vertices separately to identify spatial patterns.
+
+### Low Priority / Nice to Have
+
+- **TROP chunk**: 5 `uint32` per entry, present in all files. Name reversed is "PORT" — possibly portal or viewport data for visibility culling. Research approach: check if TROP values reference DNER group indices or XVTP vertex indices; compare TROP data between indoor (buildings) and outdoor (vehicles) models.
+
+- **XTVM chunk**: `float3 + int32` per entry. Name reversed is "MVTX" (material vertex?). May define material boundary vertices or texture coordinate anchor points. Research approach: visualize XTVM positions overlaid on the render mesh; check if the `int32` field indexes into DNER or PMTL.
+
+- **XVTP/CFTP relationship**: XVTP (float3 positions) and CFTP (3 uint32 face indices) form a secondary mesh. Likely a simplified collision or LOD mesh separate from the full HSMC collision system. Research approach: render XVTP/CFTP as a standalone mesh and compare bounding volume with the render mesh; check if CFTP indices stay within XVTP count bounds.
+
+- **TXAN texture animation**: Only 1 file in the entire dataset contains this chunk. Structure varies. Low priority unless that specific model is needed.
+
+## Research Priorities
+
+Ordered by impact on conversion quality:
+
+| Priority | Topic | Impact | Estimated Effort |
+|----------|-------|--------|-----------------|
+| 1 | Type-3 vertex UVs | Unlocks textured export for 71% of files | Medium — visual comparison with game |
+| 2 | Material-to-texture mapping | Enables textured export for all types | High — requires cross-file correlation |
+| 3 | Bone parent topology | Enables skeletal export (glTF/FBX) | Medium — 31-bone hierarchy from names |
+| 4 | PMTL table | Completes type-3 material data | Medium — statistical analysis |
+| 5 | HPRM morph targets | Enables facial animation export | High — variable structure |
+| 6 | Type-1 extra vertices | Clarifies skeletal mesh data | Low — non-blocking |
+| 7 | TROP/XTVM/XVTP/CFTP | Completes format documentation | Low — auxiliary data |
+
+### Conversion Readiness Summary
+
+| Model Type | Files | Geometry | UVs | Normals | Skeleton | Textures |
+|------------|-------|----------|-----|---------|----------|----------|
+| Type 0 (static) | 1,853 | Ready | Ready | Ready | N/A | Blocked |
+| Type 1 (skeletal) | 240 | Ready | Ready | Ready | Partially blocked | Blocked |
+| Type 3 (static) | 5,433 | Ready | Needs research | Missing | N/A | Blocked |
+
+**Bottom line**: Untextured OBJ export is achievable now for type 0 and type 1. Type 3 needs UV field confirmation. Textured and skeletal exports require further research.
 
 ## See Also
 

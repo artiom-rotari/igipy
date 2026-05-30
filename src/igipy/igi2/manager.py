@@ -76,3 +76,9 @@ class IGI2Manager(BaseManager):
 
     def read_all_syn(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
         yield from self.read_from_source(patterns=["**/*.syn"])
+
+    def read_all_iff(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
+        yield from self.read_from_unpack(patterns=["**/*.iff"])
+
+    def read_all_olm(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
+        yield from self.read_from_unpack(patterns=["**/*.olm"])

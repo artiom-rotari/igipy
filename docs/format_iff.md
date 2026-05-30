@@ -7,21 +7,21 @@ IFF files store skeletal animation clips for character and object animations. Th
 ## Structure Overview
 
 ```
-┌───────────────────────────────────────────────────┐
-│  ILFF Header (content_type = "ANIM")              │
-├───────────────────────────────────────────────────┤
-│  DHNA — Animation Header (57–109 bytes)           │
-│  version, duration, bone count, name              │
-├───────────────────────────────────────────────────┤
-│  REIH — Bone Hierarchy (404 or 612 bytes)         │
-│  per-bone type flags + rest-pose offsets           │
-├───────────────────────────────────────────────────┤
-│  TNVE — Keyframe Data (bulk of file)              │
-│  variable-size entries: pos, rot, transforms      │
-├───────────────────────────────────────────────────┤
-│  ATTA — Attachment Points (optional, N × 80B)     │
-│  named bone attachments (weapon, helmet, etc.)    │
-└───────────────────────────────────────────────────┘
++---------------------------------------------------+
+|  ILFF Header (content_type = "ANIM")              |
++---------------------------------------------------+
+|  DHNA -- Animation Header (57-109 bytes)          |
+|  version, duration, bone count, name              |
++---------------------------------------------------+
+|  REIH -- Bone Hierarchy (404 or 612 bytes)        |
+|  BFS child counts + parent-relative offsets       |
++---------------------------------------------------+
+|  TNVE -- Keyframe Data (bulk of file)             |
+|  variable-size entries: pos, rot, transforms      |
++---------------------------------------------------+
+|  ATTA -- Attachment Points (optional, N x 80B)    |
+|  named bone attachments (weapon, helmet, etc.)    |
++---------------------------------------------------+
 ```
 
 ## Statistics
@@ -30,13 +30,13 @@ IFF files store skeletal animation clips for character and object animations. Th
 |--------|-------|
 | Total files | 1,244 |
 | Location | `common/anims/` (inside `.res` archives) |
-| Size range | 2,800–360,624 bytes |
+| Size range | 2,800-360,624 bytes |
 | Median size | 7,558 bytes |
-| Skeleton types | 31-bone (1,158 files), 47-bone (86 files) |
+| Skeleton types | 31-bone (990 files), 47-bone (254 files) |
 | Chunk combinations | `DHNA+REIH+TNVE` (154 files), `DHNA+REIH+TNVE+ATTA` (1,090 files) |
-| Naming | Descriptive (`crawl.iff`, `civilian_walk.iff`) and numbered (`005_02.iff`) |
+| Naming | Descriptive (`crawl.iff`, `civilian_walk.iff`), numbered (`005_02.iff`), and first-person (`fire_ak47_1st.iff`) |
 
-## DHNA — Animation Header
+## DHNA -- Animation Header
 
 The chunk fourcc `DHNA` is `ANHD` reversed (Animation Header). Variable size due to the embedded animation name string.
 
@@ -63,43 +63,148 @@ Offset  Size  Type     Field
 | `generic_walk.iff` | 32,800 | 31 | 5,018 | No | No |
 | `anya_talking.iff` | 448,000 | 31 | 4,006 | Yes | No |
 
-## REIH — Bone Hierarchy
+## REIH -- Bone Hierarchy
 
-The chunk fourcc `REIH` is `HIER` reversed (Hierarchy). Size depends on bone count: 31 bones = 404 bytes, 47 bones = 612 bytes. Formula: `bone_count + 1 + bone_count × 12`.
+The chunk fourcc `REIH` is `HIER` reversed (Hierarchy). Size depends on bone count: 31 bones = 404 bytes, 47 bones = 612 bytes. Formula: `bone_count + 1 + bone_count * 12`.
 
 ```
 Offset          Size              Type       Field
-0               bone_count        byte[]     Bone type flags (one per bone)
+0               bone_count        byte[]     BFS child counts (one per bone)
 bone_count      1                 byte       Padding (0x00)
-bone_count + 1  bone_count × 12   float3[]   Rest-pose offsets (3 floats per bone)
+bone_count + 1  bone_count * 12   float3[]   Rest-pose offsets (3 floats per bone)
 ```
 
-### Bone Type Flags
+### BFS Child Counts (Bone Hierarchy Reconstruction)
 
-| Flag | Meaning | TNVE entry types used | Count (31-bone) | Count (47-bone) |
-|------|---------|-----------------------|-----------------|-----------------|
-| 0 | End effector (no animation) | None | 5 | 10 |
-| 1 | Rotation-only bone | `0x04` (ROT) | 24 | 34 |
-| 2 | Full transform (47-bone root) | `0x01`, `0x07` | - | 1 |
-| 3 | Position + rotation (31-bone root) | `0x03`/`0x06` + `0x04` | 2 | - |
-| 5 | Special (47-bone only) | varies | - | 2 |
+The first `bone_count` bytes encode the skeleton hierarchy as a **BFS-ordered child count** (out-degree) per bone. The bones are listed in breadth-first traversal order, and each byte tells how many direct children that bone has.
 
-31-bone skeleton type layout:
+**Proof:** For any tree with N nodes, the sum of all child counts equals N-1 (every node except the root has exactly one parent). For the 31-bone skeleton: sum = 30 = 31-1. For the 47-bone skeleton: sum = 46 = 47-1.
+
+**Reconstruction algorithm** (BFS queue):
+
+```
+1. Read bone 0 (root). Push it to a FIFO queue with its child count.
+2. For each subsequent bone (index 1..N-1):
+   a. Peek at the front of the queue -- this is the current parent.
+   b. Assign this bone as a child of the current parent.
+   c. Decrement the parent's remaining child count.
+   d. If the parent's count reaches 0, pop it from the queue.
+   e. If this bone's child count > 0, push it to the back of the queue.
+```
+
+This algorithm works for both 31-bone and 47-bone skeletons with no hardcoded hierarchy.
+
+### 31-Bone Skeleton Hierarchy
+
+Child counts and bone names (from MEF MANB chunk):
 
 ```
 Index:  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30
-Type:   3  1  1  1  1  1  1  3  1  1  1  1  1  1  1  1  1  1  0  0  0  1  1  1  1  1  1  1  1  0  0
-        ^                       ^                                      ^ ^ ^                       ^ ^
-        root                    root2                                  end effectors               end
+Count:  3  1  1  1  1  1  1  3  1  1  1  1  1  1  1  1  1  1  0  0  0  1  1  1  1  1  1  1  1  0  0
 ```
 
-## TNVE — Keyframe Data
+Reconstructed tree:
+
+```
+center (3 children)
++-- lower body (1)
+|   +-- upper body (1)
+|       +-- shoulders (3)
+|           +-- rotate_head (1)
+|           |   +-- head (1)
+|           |       +-- head end (0)
+|           +-- rotate_left (1)
+|           |   +-- upper left arm (1)
+|           |       +-- lower left arm (1)
+|           |           +-- left hand (1)
+|           |               +-- upper left finger (1)
+|           |                   +-- lower left finger (1)
+|           |                       +-- left fingers end (0)
+|           +-- rotate_right (1)
+|               +-- upper right arm (1)
+|                   +-- lower right arm (1)
+|                       +-- right hand (1)
+|                           +-- upper right finger (1)
+|                               +-- lower right finger (1)
+|                                   +-- right fingers end (0)
++-- upper left leg (1)
+|   +-- lower left leg (1)
+|       +-- left foot (1)
+|           +-- left toe (1)
+|               +-- left toe end (0)
++-- upper right leg (1)
+    +-- lower right leg (1)
+        +-- right foot (1)
+            +-- right toe (1)
+                +-- right toe end (0)
+```
+
+The center (pelvis) has 3 children: the spine chain (lower body) and both hip joints (upper left/right leg). The shoulders node branches into 3 chains: head and both arms. Bones with count 0 are leaf/end effectors.
+
+### Rest-Pose Offsets
+
+The float3 values after the child counts are **parent-relative translations** (bone-local offsets from parent bone position), NOT absolute world positions.
+
+Evidence:
+- Bones 10-12 (rotate_head, rotate_left, rotate_right) have offset `(0, 0, 0)` -- they are co-located with their parent (shoulders). This only makes sense as parent-relative.
+- Offsets for bones 1-30 are nearly identical across all 990 animations of the same skeleton type, while bone 0 (root) varies per animation.
+- TNVE position keyframes for bone 0 at frame 0 always match the REIH offset for bone 0 exactly, confirming they share the same coordinate space.
+
+The engine uses fixed-point precision: **4096 game units = 1 meter** (2^12, enabling fast bit-shift division). The 31-bone skeleton measures ~7319 units from foot to head end, yielding 1.787m (5'10") — the industry-standard default male character height.
+
+The coordinate system is **Z-up, left-handed**: X = right, Y = forward, Z = up. When exporting to glTF (Y-up, right-handed), positions transform as `(x, y, z) → (x, z, -y)` and quaternions as `(qx, qy, qz, qw) → (qx, qz, -qy, qw)`.
+
+### Child Count Values by Skeleton Type
+
+| Count | Meaning | 31-bone | 47-bone |
+|-------|---------|---------|---------|
+| 0 | Leaf / end effector | 5 bones | 10 bones |
+| 1 | Chain bone (single child) | 24 bones | 34 bones |
+| 2 | Two-way branch | - | 1 bone |
+| 3 | Three-way branch | 2 bones (center, shoulders) | - |
+| 5 | Five-way branch | - | 2 bones |
+
+The child count values are consistent across all animations of the same skeleton type (all 990 files with 31 bones share the same child counts, and all 254 files with 47 bones share the same child counts).
+
+### 47-Bone Skeleton — First-Person Hand Model
+
+The 47-bone skeleton is used for `005_01_1.mef`, a first-person hand model with detailed individual finger bones. Its 254 animations are all in `common/anims/`.
+
+#### Identifying 47-Bone Animations by Filename
+
+All 47-bone animations can be identified by these filename patterns:
+
+| Pattern | Count | Description |
+|---------|-------|-------------|
+| `005_*.iff` | 61 | Numbered hand pose/gesture animations |
+| `*_1st.iff` | 189 | First-person weapon animations (fire, reload, walk, run, weaponraise, etc.) |
+| `*_1st_pers.iff` | 2 | `pistolwhip_1st_pers.iff`, `push_button_1st_pers.iff` |
+| `arm_blank.iff` | 1 | Blank/default arm pose |
+| `fire_mapcomputer.iff` | 1 | Map computer interaction (no `_1st` suffix) |
+| **Total** | **254** | |
+
+The `*_1st.iff` animations break down by action:
+
+| Action prefix | Count | Examples |
+|---------------|-------|---------|
+| `fire_*` | 40 | `fire_ak47_1st`, `fire_grenade_1st`, `fire_pullpin_flashbang_1st` |
+| `reload_*` | 34 | `reload_m16_1st`, `reload_loop_spas_1st`, `reload_finish_m1014_1st` |
+| `walk_*` | 30 | `walk_knife_1st`, `walk_pistol_1st`, `walk_irgoggles_1st` |
+| `run_*` | 30 | `run_ak47_1st`, `run_binoculars_1st`, `run_laserdesignator_1st` |
+| `weaponraise_*` | 30 | `weaponraise_g36_1st`, `weaponraise_knife_1st` |
+| `pistolwhip_*` | 7 | `pistolwhip_gloc_1st`, `pistolwhip_uzi_1st` |
+| `hitwithstock_*` | 3 | `hitwithstock_ak47_1st`, `hitwithstock_m1014_1st` |
+| Other | 15 | `swim_1st`, `push_button_1st` |
+
+All remaining IFF files (any name not matching the patterns above) use the 31-bone skeleton.
+
+## TNVE -- Keyframe Data
 
 The chunk fourcc `TNVE` is `EVNT` reversed (Events). This is the bulk of the file, containing all animation channel data as a flat sequence of variable-size entries.
 
 ### Entry Size Rule
 
-Every entry starts with a 4-byte header where bytes 2–3 are a `uint16` descriptor. **The entry size in bytes = `descriptor × 4`**. This rule was validated across all 1,244 files with zero failures.
+Every entry starts with a 4-byte header where bytes 2-3 are a `uint16` descriptor. **The entry size in bytes = `descriptor * 4`**. This rule was validated across all 1,244 files with zero failures.
 
 ### Common Entry Header (12 bytes)
 
@@ -107,7 +212,7 @@ Every entry starts with a 4-byte header where bytes 2–3 are a `uint16` descrip
 Offset  Size  Type     Field
 0       1     byte     Entry type (0x01, 0x03, 0x04, 0x06, 0x07, 0xFF)
 1       1     byte     Bone index
-2       2     uint16   Size descriptor (entry_size = descriptor × 4)
+2       2     uint16   Size descriptor (entry_size = descriptor * 4)
 4       4     uint32   Frame offset (time position in duration units)
 8       4     uint32   Reserved (usually 0)
 ```
@@ -117,10 +222,10 @@ Offset  Size  Type     Field
 | Type | Desc | Size | Data layout | Description | Frequency |
 |------|------|------|-------------|-------------|-----------|
 | `0x03` | 6 | 24B | header(12) + position(12) | Position keyframe (3 floats) | Common |
-| `0x04` | 18 | 72B | header(12) + 3×[quat(16) + pad(4)] | Rotation with tangents | ~98% of all entries |
-| `0x06` | 8 | 32B | header(12) + extra(8) + position(12) | Position with interpolation data | Uncommon |
+| `0x04` | 18 | 72B | header(12) + 3x[quat(16) + pad(4)] | Rotation with tangents | ~98% of all entries |
+| `0x06` | 8 | 32B | header(12) + extra(8) + position(12) | Interpolation control point (NOT a direct position keyframe) | Uncommon |
 | `0x07` | 11 | 44B | header(12) + position(12) + quat(16) + pad(4) | Full transform (pos + rot) | 47-bone only |
-| `0x01` | 17 | 68B | header(12) + int(4) + 2×[quat(16)] + pad(4) + pos(12) + float(4) | Full transform with tangents | 47-bone only |
+| `0x01` | 17 | 68B | header(12) + int(4) + 2x[quat(16)] + pad(4) + pos(12) + float(4) | Full transform with tangents | 47-bone only |
 | `0xFF` | 3 | 12B | header only | Section separator (loop boundary) | 0 or 1 per file |
 
 The `pad` bytes are always `0xAB AB AB AB`.
@@ -132,12 +237,12 @@ The dominant entry type stores three quaternions per keyframe: the rotation valu
 ```
 Offset  Size  Content
 0       12    Common header (type=0x04, bone_idx, desc=18, frame_offset, reserved)
-12      16    Quaternion value (4 × float32: x, y, z, w)
-28      4     Padding (0xAB × 4)
-32      16    In-tangent quaternion (4 × float32)
-48      4     Padding (0xAB × 4)
-52      16    Out-tangent quaternion (4 × float32)
-68      4     Padding (0xAB × 4)
+12      16    Quaternion value (4 x float32: x, y, z, w)
+28      4     Padding (0xAB x 4)
+32      16    In-tangent quaternion (4 x float32)
+48      4     Padding (0xAB x 4)
+52      16    Out-tangent quaternion (4 x float32)
+68      4     Padding (0xAB x 4)
 ```
 
 ### Looping Animation Structure
@@ -155,27 +260,35 @@ Section 2: Wrap-around pose (1 POS + all ROT entries).
            Provides the pose for seamless loop blending.
 ```
 
-Non-looping animations have no separator — just a flat sequence of keyframe entries.
+Non-looping animations have no separator -- just a flat sequence of keyframe entries.
+
+**Important for exporters:** Only Section 1 entries (before the separator) should be used as animation keyframes. Section 2 provides the wrap-around pose for the game engine's loop blending and should be excluded from exported animation data.
+
+### Type 0x06 Entries (Interpolation Control)
+
+Type `0x06` entries are **not direct position keyframes**. Their position values occupy a different coordinate space from regular position entries (type `0x03`). For example, in `civilian_walk.iff`, bone 0 has rest position `(0.4, 3.9, 3805.5)` but type `0x06` entries show `(752.5, 1622.4, -3041.8)` — clearly not in the same space. The 8-byte extra field contains a uint32 (often 0) and padding bytes (`0xABAB`). These entries should be skipped when extracting position keyframes for animation playback.
 
 ### Delta Compression
 
 Not every bone has a keyframe at every time offset. Only bones whose values change get new entries. A static pose (like `corpse.iff`) has just 1 position + 31 rotations = 32 entries. A complex walk cycle (`generic_walk.iff`) has 5,018 entries spread across many time offsets.
 
-## ATTA — Attachment Points
+## ATTA -- Attachment Points
 
 Present in 1,090 of 1,244 files (87.5%). Each attachment is 80 bytes.
 
 ```
 Offset  Size  Type      Field
 0       16    char[16]  Attachment name (null-padded ASCII)
-16      12    float3    Position (3 × float32)
-28      16    float4    Orientation quaternion (4 × float32)
-44      16    float4    Secondary quaternion (4 × float32)
-60      4     -         Padding (0xAB × 4)
-64      4     uint32    Bone index
+16      12    float3    Position (3 x float32)
+28      16    float4    Orientation quaternion (4 x float32)
+44      16    float4    Secondary quaternion (4 x float32)
+60      4     -         Padding (0xAB x 4)
+64      4     uint32    Bone index (0xABABABAB = no bone / unlinked)
 68      4     uint32    Attachment index
 72      8     -         Reserved (zeros)
 ```
+
+The bone index value `0xABABABAB` is the MSVC debug heap fill pattern, used here as a sentinel meaning "not attached to any bone". These attachments exist as independent scene objects.
 
 ### Attachment Count Distribution
 
@@ -200,26 +313,114 @@ Two distinct skeleton types exist across all 1,244 files:
 
 | Property | 31-bone | 47-bone |
 |----------|---------|---------|
-| Files | 1,158 | 86 |
+| Files | 990 | 254 |
 | REIH size | 404 bytes | 612 bytes |
-| Naming | Descriptive (`walk.iff`) | Numbered (`005_XX.iff`) |
-| Root bone type | 3 (pos+rot) | 2 (full transform) |
+| Naming | Descriptive (`walk.iff`, `crawl.iff`) | Numbered (`005_XX.iff`, 61 files) and first-person weapon (`fire_ak47_1st.iff`, 193 files) |
+| Root children | 3 (spine + both legs) | 2 |
 | Entry types used | `0x03`, `0x04`, `0x06` | `0x01`, `0x04`, `0x07` |
-| End effectors | 5 (bones 18–20, 29–30) | 10 (bones 37–46) |
+| End effectors | 5 (bones 18-20, 29-30) | 10 (bones 37-46) |
+| Bone names | Known (from MEF MANB) | Known (from MEF `005_01_1.mef` MANB — detailed hand/finger skeleton) |
+
+### Skeleton Compatibility with MEF Models
+
+For an animation to be applied to a model, both must share the same skeleton (bone count and hierarchy). Only MEF type-1 (skeletal) models have skeletons — the remaining 7,369 MEFs are static geometry with no animation support.
+
+| Bone Count | IFF Animations | MEF Models | Compatible |
+|------------|---------------|------------|------------|
+| 31 | 990 | 237 | Yes — REIH hierarchy and MANB bone names confirmed matching |
+| 47 | 254 | 1 | Yes — 254 first-person hand/weapon animations target `005_01_1.mef` |
+| 28 | 0 | 2 | No matching animations exist |
+
+The REIH chunk format is identical in both IFF and MEF files. Child counts are consistent across all files of the same bone count, confirming the skeleton topology is fixed per type. The 2 MEF files with 28-bone skeletons have no corresponding IFF animations and may represent articulated objects (e.g., vehicles) that use a different animation system or are non-animated.
+
+## Bone Names (MANB Reference)
+
+Bone names are stored in the MEF MANB chunk as 16-byte null-padded ASCII strings. Names longer than 15 characters are truncated. The values below are exact MANB strings as they appear in the binary data.
+
+### 31-Bone Skeleton (from `jones_1.mef`)
+
+| Index | MANB string | Index | MANB string |
+|-------|-------------|-------|-------------|
+| 0 | `center` | 16 | `upper left arm` |
+| 1 | `lower body` | 17 | `upper right arm` |
+| 2 | `upper left leg` | 18 | `left toe end` |
+| 3 | `upper right leg` | 19 | `right toe end` |
+| 4 | `upper body` | 20 | `head end` |
+| 5 | `lower left leg` | 21 | `lower left arm` |
+| 6 | `lower right leg` | 22 | `lower right arm` |
+| 7 | `shoulders` | 23 | `left hand` |
+| 8 | `left foot` | 24 | `right hand` |
+| 9 | `right foot` | 25 | `upper left finge` |
+| 10 | `rotate_head` | 26 | `upper right fing` |
+| 11 | `rotate_left` | 27 | `lower left finge` |
+| 12 | `rotate_right` | 28 | `lower right fing` |
+| 13 | `left toe` | 29 | `left fingers end` |
+| 14 | `right toe` | 30 | `right fingers en` |
+| 15 | `head` | | |
+
+### 47-Bone Skeleton (from `005_01_1.mef`)
+
+| Index | MANB string | Index | MANB string |
+|-------|-------------|-------|-------------|
+| 0 | `center shoulders` | 24 | `lower right midd` |
+| 1 | `upper left arm` | 25 | `lower right ring` |
+| 2 | `upper right arm` | 26 | `lower right thum` |
+| 3 | `lower left arm` | 27 | `left forefinger ` |
+| 4 | `lower right arm` | 28 | `left little fing` |
+| 5 | `left hand` | 29 | `left middle fing` |
+| 6 | `right hand` | 30 | `left ring finger` |
+| 7 | `upper left foref` | 31 | `left thumb tip` |
+| 8 | `upper left littl` | 32 | `right forefinger` |
+| 9 | `upper left middl` | 33 | `right little fin` |
+| 10 | `upper left ring ` | 34 | `right middle fin` |
+| 11 | `upper left thumb` | 35 | `right ring finge` |
+| 12 | `upper right fore` | 36 | `right thumb tip` |
+| 13 | `upper right litt` | 37 | `none09` |
+| 14 | `upper right midd` | 38 | `none07` |
+| 15 | `upper right ring` | 39 | `none06` |
+| 16 | `upper right thum` | 40 | `none08` |
+| 17 | `lower left foref` | 41 | `none10` |
+| 18 | `lower left littl` | 42 | `none02` |
+| 19 | `lower left middl` | 43 | `none05` |
+| 20 | `lower left ring ` | 44 | `none03` |
+| 21 | `lower left thumb` | 45 | `none04` |
+| 22 | `lower right fore` | 46 | `none01` |
+| 23 | `lower right litt` | | |
+
+### 28-Bone Skeleton (from `pat_2.mef`)
+
+| Index | MANB string | Index | MANB string |
+|-------|-------------|-------|-------------|
+| 0 | `center` | 14 | `right toe` |
+| 1 | `lower body` | 15 | `head end` |
+| 2 | `upper left leg` | 16 | `lower left arm` |
+| 3 | `upper right leg` | 17 | `lower right arm` |
+| 4 | `upper body` | 18 | `left toe end` |
+| 5 | `lower left leg` | 19 | `right toe end` |
+| 6 | `lower right leg` | 20 | `left hand` |
+| 7 | `shoulders` | 21 | `right hand` |
+| 8 | `left foot` | 22 | `upper left finge` |
+| 9 | `right foot` | 23 | `upper right fing` |
+| 10 | `head` | 24 | `lower left finge` |
+| 11 | `upper left arm` | 25 | `lower right fing` |
+| 12 | `upper right arm` | 26 | `left fingers end` |
+| 13 | `left toe` | 27 | `right fingers en` |
+
+The 28-bone skeleton is the 31-bone humanoid with 3 rotation helper bones removed: `rotate_head`, `rotate_left`, `rotate_right`. Used only in `pat_2.mef` (location 2 common, location 3 level 6). No IFF animations exist for this skeleton.
 
 ## Timing
 
-Frame offsets in TNVE entries use the same time unit as `DHNA.duration`. Specific frame rate and time-unit-to-seconds conversion factor are not yet determined — this requires cross-referencing with the game engine's animation playback system or QSC script timing values.
+Frame offsets in TNVE entries use the same time unit as `DHNA.duration`. Specific frame rate and time-unit-to-seconds conversion factor are not yet determined -- this requires cross-referencing with the game engine's animation playback system or QSC script timing values.
 
 ## Open Questions
 
-- **Parent indices**: The REIH chunk stores bone type flags and rest-pose offsets, but explicit parent-child bone indices have not been identified. The skeleton topology may be implicit (fixed for each skeleton type) or encoded differently.
 - **Time units**: The exact conversion from duration units to seconds/frames needs verification against in-game playback.
 - **Interpolation scheme**: The three quaternions per rotation entry (value + 2 tangents) suggest Hermite spline interpolation, but the exact formulation needs confirmation.
 - **Secondary ATTA quaternion**: The second quaternion in each ATTA entry may be a tangent, inverse bind pose, or interpolation endpoint.
+- **47-bone `noneXX` bones**: The 47-bone skeleton has 10 end effectors named `none01`–`none10`. Their purpose is unclear — they may be fingertip end effectors, IK targets, or attachment points.
 
 ## See Also
 
-- [Game Structure](game_structure.md) — IGI2 game file organization, including `common/anims/` location
-- [File Extensions](extensions.md) — full file type inventory with conversion status
-- [SYN Format](format_syn.md) — lip-sync envelope format (related animation data)
+- [Game Structure](game_structure.md) -- IGI2 game file organization, including `common/anims/` location
+- [File Extensions](extensions.md) -- full file type inventory with conversion status
+- [SYN Format](format_syn.md) -- lip-sync envelope format (related animation data)

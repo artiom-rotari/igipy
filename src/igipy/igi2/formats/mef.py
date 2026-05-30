@@ -484,12 +484,13 @@ class XTVCChunk(ilff.Chunk):
     """
 
     class XTVCItem(StructModel):
-        struct: ClassVar = Struct("<4f")
+        struct: ClassVar = Struct("<5f")
 
         unknown_01: float
         unknown_02: float
         unknown_03: float
         unknown_04: float
+        unknown_05: float
 
     content: list[XTVCItem]
 
@@ -508,12 +509,14 @@ class ECFCChunk(ilff.Chunk):
     """
 
     class ECFCItem(StructModel):
-        struct: ClassVar = Struct("<4H")
+        struct: ClassVar = Struct("<6H")
 
         unknown_01: NonNegativeInt
         unknown_02: NonNegativeInt
         unknown_03: NonNegativeInt
         unknown_04: NonNegativeInt
+        unknown_05: NonNegativeInt
+        unknown_06: NonNegativeInt
 
     content: list[ECFCItem]
 
@@ -532,7 +535,7 @@ class TAMCChunk(ilff.Chunk):
     """
 
     class TAMCItem(StructModel):
-        struct: ClassVar = Struct("<6h")
+        struct: ClassVar = Struct("<8h")
 
         unknown_01: int
         unknown_02: int
@@ -540,6 +543,8 @@ class TAMCChunk(ilff.Chunk):
         unknown_04: int
         unknown_05: int
         unknown_06: int
+        unknown_07: int
+        unknown_08: int
 
     content: list[TAMCItem]
 
@@ -580,6 +585,92 @@ class HPSCChunk(ilff.Chunk):
         return {"content": cls.HPSCItem.unpack_many(content)}
 
 
+# Simplified Collision Mesh (SEMS variant)
+
+
+class SEMSChunk(ilff.Chunk):
+    class SEMSItem(StructModel):
+        struct: ClassVar = Struct("<7i")
+
+        cafs_start: int
+        xtvs_start: int
+        egde_start: int
+        cafs_count: int
+        xtvs_count: int
+        egde_count: int
+        sentinel: int
+
+    content: list[SEMSItem]
+
+    @classmethod
+    def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
+        ilff.model_validate_header(header, fourcc=b"SEMS")
+
+    @classmethod
+    def model_validate_content(cls, content: bytes) -> dict:
+        return {"content": cls.SEMSItem.unpack_many(content)}
+
+
+class XTVSChunk(ilff.Chunk):
+    class XTVSItem(StructModel):
+        struct: ClassVar = Struct("<3f")
+
+        pos_x: float
+        pos_y: float
+        pos_z: float
+
+    content: list[XTVSItem]
+
+    @classmethod
+    def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
+        ilff.model_validate_header(header, fourcc=b"XTVS")
+
+    @classmethod
+    def model_validate_content(cls, content: bytes) -> dict:
+        return {"content": cls.XTVSItem.unpack_many(content)}
+
+
+class CAFSChunk(ilff.Chunk):
+    class CAFSItem(StructModel):
+        struct: ClassVar = Struct("<3I4f")
+
+        index_a: NonNegativeInt
+        index_b: NonNegativeInt
+        index_c: NonNegativeInt
+        normal_x: float
+        normal_y: float
+        normal_z: float
+        distance: float
+
+    content: list[CAFSItem]
+
+    @classmethod
+    def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
+        ilff.model_validate_header(header, fourcc=b"CAFS")
+
+    @classmethod
+    def model_validate_content(cls, content: bytes) -> dict:
+        return {"content": cls.CAFSItem.unpack_many(content)}
+
+
+class EGDEChunk(ilff.Chunk):
+    class EGDEItem(StructModel):
+        struct: ClassVar = Struct("<2I")
+
+        index_a: NonNegativeInt
+        index_b: NonNegativeInt
+
+    content: list[EGDEItem]
+
+    @classmethod
+    def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
+        ilff.model_validate_header(header, fourcc=b"EGDE")
+
+    @classmethod
+    def model_validate_content(cls, content: bytes) -> dict:
+        return {"content": cls.EGDEItem.unpack_many(content)}
+
+
 # MEF Base
 
 
@@ -614,18 +705,23 @@ class MEF(ilff.ILFF):
         b"TAMC": TAMCChunk,
         b"HPSC": HPSCChunk,
         b"TXAN": TXANChunk,
+        b"SEMS": SEMSChunk,
+        b"XTVS": XTVSChunk,
+        b"CAFS": CAFSChunk,
+        b"EGDE": EGDEChunk,
     }
 
-    hsem: HSEMChunk
-    atta: ATTAChunk
-    xtvm: XTVMChunk
-    trop: TROPChunk
-    xvtp: XVTPChunk
-    cftp: CFTPChunk
-    d3dr: D3DRChunk
-    ecaf: ECAFChunk
-    dner: DNERChunk
-    xtrv: XTRVChunk
+    # Standard variant fields (HSEM-based)
+    hsem: HSEMChunk | None = None
+    atta: ATTAChunk | None = None
+    xtvm: XTVMChunk | None = None
+    trop: TROPChunk | None = None
+    xvtp: XVTPChunk | None = None
+    cftp: CFTPChunk | None = None
+    d3dr: D3DRChunk | None = None
+    ecaf: ECAFChunk | None = None
+    dner: DNERChunk | None = None
+    xtrv: XTRVChunk | None = None
     pmtl: PMTLChunk | None = None
     reih: REIHChunk | None = None
     manb: MANBChunk | None = None
@@ -634,15 +730,20 @@ class MEF(ilff.ILFF):
     hsmc: HSMCChunk | None = None
     txan: TXANChunk | None = None
 
-    items: list[MEFItem]
+    items: list[MEFItem] = Field(default_factory=list)
+
+    # SEMS variant fields (simplified collision mesh)
+    sems: SEMSChunk | None = None
+    xtvs: XTVSChunk | None = None
+    cafs: CAFSChunk | None = None
+    egde: EGDEChunk | None = None
+
+    @property
+    def is_sems_variant(self) -> bool:
+        return self.sems is not None
 
     @classmethod
-    def model_validate_stream(cls, stream: BytesIO) -> Self:
-        header, content_type, content = super().model_validate_chunks(stream)
-
-        if content_type != b"OCEM":
-            raise ValueError("Invalid content type")
-
+    def _validate_standard(cls, header: ilff.ILFFHeader, content_type: bytes, content: list[ilff.Chunk]) -> Self:
         field_mapping: dict[type[ilff.Chunk], str] = {
             HSEMChunk: "hsem",
             ATTAChunk: "atta",
@@ -708,6 +809,42 @@ class MEF(ilff.ILFF):
             )
 
         return cls(header=header, content_type=content_type, items=items, **instance_values)
+
+    @classmethod
+    def _validate_sems(cls, header: ilff.ILFFHeader, content_type: bytes, content: list[ilff.Chunk]) -> Self:
+        field_mapping: dict[type[ilff.Chunk], str] = {
+            SEMSChunk: "sems",
+            XTVSChunk: "xtvs",
+            CAFSChunk: "cafs",
+            EGDEChunk: "egde",
+        }
+
+        instance_values = {}
+
+        for chunk in content:
+            field = field_mapping[type(chunk)]
+            if field in instance_values:
+                raise ValueError(f"Multiple {field} chunks found")
+            instance_values[field] = chunk
+
+        for field in ["sems", "xtvs", "cafs", "egde"]:
+            if field not in instance_values:
+                raise ValueError(f"Missing required {field} chunk")
+
+        return cls(header=header, content_type=content_type, **instance_values)
+
+    @classmethod
+    def model_validate_stream(cls, stream: BytesIO) -> Self:
+        header, content_type, content = super().model_validate_chunks(stream)
+
+        if content_type != b"OCEM":
+            raise ValueError("Invalid content type")
+
+        is_sems = content and isinstance(content[0], SEMSChunk)
+
+        if is_sems:
+            return cls._validate_sems(header, content_type, content)
+        return cls._validate_standard(header, content_type, content)
 
     # noinspection PyNestedDecorators
     @model_validator(mode="after")

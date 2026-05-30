@@ -15,6 +15,9 @@ from igipy.igi2.services.dat_forest_to_json import dat_forest_to_json
 from igipy.igi2.services.dat_graph_to_json import dat_graph_to_json
 from igipy.igi2.services.dat_graphcover_to_json import dat_graphcover_to_json
 from igipy.igi2.services.fnt_to_zip import fnt_to_zip
+from igipy.igi2.services.iff_to_gltf import iff_to_gltf
+from igipy.igi2.services.iff_to_json import iff_to_json
+from igipy.igi2.services.olm_to_tga import olm_to_tga
 from igipy.igi2.services.syn_to_json import syn_to_json
 from igipy.igi2.services.thm_to_tga import thm_to_tga
 from igipy.igi2.services.tlm_to_tga import tlm_to_tga
@@ -162,6 +165,15 @@ def igi2_zip_convert_all(dry: bool = False) -> None:
 
     typer.secho("Converting graphcover*.dat to .json...", fg="green")
     igi2_zip_convert_dat_graphcover_to_json(dry=dry)
+
+    typer.secho("Converting .olm to .tga object lightmap...", fg="green")
+    igi2_zip_convert_olm_to_tga(dry=dry)
+
+    typer.secho("Converting .iff to .json animation data...", fg="green")
+    igi2_zip_convert_iff_to_json(dry=dry)
+
+    typer.secho("Converting .iff to .gltf skeleton animation...", fg="green")
+    igi2_zip_convert_iff_to_gltf(dry=dry)
 
     typer.secho("All zip conversions complete.", fg="green", bold=True)
 
@@ -362,5 +374,50 @@ def igi2_zip_convert_dat_graphcover_to_json(dry: bool = False) -> None:
         convert_path=config.igi2.convert_path,
         converter=dat_graphcover_to_json,
         patterns=["graphcover*.dat"],
+        dry=dry,
+    )
+
+
+@igi2_app.command(
+    name="zip-convert-iff-to-json",
+    short_help="Convert .iff files from collect zip to .json animation data in convert zip",
+)
+def igi2_zip_convert_iff_to_json(dry: bool = False) -> None:
+    config = Config.model_validate_file()
+    convert_zip(
+        collect_path=config.igi2.collect_path,
+        convert_path=config.igi2.convert_path,
+        converter=iff_to_json,
+        patterns=["*.iff"],
+        dry=dry,
+    )
+
+
+@igi2_app.command(
+    name="zip-convert-olm-to-tga",
+    short_help="Convert .olm files from collect zip to .tga object lightmap images in convert zip",
+)
+def igi2_zip_convert_olm_to_tga(dry: bool = False) -> None:
+    config = Config.model_validate_file()
+    convert_zip(
+        collect_path=config.igi2.collect_path,
+        convert_path=config.igi2.convert_path,
+        converter=olm_to_tga,
+        patterns=["*.olm"],
+        dry=dry,
+    )
+
+
+@igi2_app.command(
+    name="zip-convert-iff-to-gltf",
+    short_help="Convert .iff files from collect zip to .gltf skeleton animation in convert zip",
+)
+def igi2_zip_convert_iff_to_gltf(dry: bool = False) -> None:
+    config = Config.model_validate_file()
+    convert_zip(
+        collect_path=config.igi2.collect_path,
+        convert_path=config.igi2.convert_path,
+        converter=iff_to_gltf,
+        patterns=["*.iff"],
         dry=dry,
     )
