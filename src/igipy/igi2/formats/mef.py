@@ -125,13 +125,22 @@ class XTVMChunk(ilff.Chunk):
 
 class TROPChunk(ilff.Chunk):
     class TROPItem(StructModel):
+        """Portal descriptor (fourcc PORT, ``TROP`` reversed).
+
+        Each entry references a contiguous range in two arrays: ``range_a`` (typically 4
+        entries — a portal quad's vertices) and ``range_b`` (typically 2 — its triangles),
+        tagged by an external group/zone ``reference_index``. The ``*_start`` fields are
+        cumulative (each equals the running sum of preceding ``*_count`` values) — verified
+        across all 13 TROP-bearing editor samples.
+        """
+
         struct: ClassVar = Struct("<5I")
 
-        unknown_01: NonNegativeInt
-        unknown_02: NonNegativeInt
-        unknown_03: NonNegativeInt
-        unknown_04: NonNegativeInt
-        unknown_05: NonNegativeInt
+        range_a_start: NonNegativeInt
+        range_a_count: NonNegativeInt
+        range_b_start: NonNegativeInt
+        range_b_count: NonNegativeInt
+        reference_index: NonNegativeInt
 
     content: list[TROPItem]
 
@@ -338,15 +347,36 @@ class XTRVChunk(ilff.RawChunk):
         bone_index: int
 
     class XTRVItem3(StructModel):
+        """Type-3 (lightmapped static) render vertex: position + diffuse UV + lightmap UV.
+
+        Unlike type 0/1 vertices, type-3 stores NO per-vertex normal — for lightmapped
+        static geometry lighting is baked into the lightmap, so runtime normals are not
+        needed. Decoded against the editor's text-MEF sources (gconv-paired samples): the
+        diffuse UV matches the text ``UV()`` command exactly across 128,869/128,869 type-3
+        vertices, with the V stored already flipped as ``1 - source_v``. The second UV set
+        (``lightmap_u``/``lightmap_v``) is the auto-generated lightmap channel, always in
+        ``[0, 1]``.
+        """
+
         struct: ClassVar = Struct("<7f")
 
         position_x: float
         position_y: float
         position_z: float
-        unknown_01: float
-        unknown_02: float
-        unknown_03: float
-        unknown_04: float
+        uv_u: float
+        diffuse_v: float
+        lightmap_u: float
+        lightmap_v: float
+
+        @property
+        def uv_v(self) -> float:
+            """Raw source V, consistent with XTRVItem0/1.uv_v.
+
+            ``diffuse_v`` is stored pre-flipped (``1 - source_v``); reconstruct the raw
+            source V so every XTRV variant exposes ``uv_u``/``uv_v`` with identical meaning
+            and the exporter convention ``(uv_u, 1.0 - uv_v)`` works uniformly.
+            """
+            return 1.0 - self.diffuse_v
 
     @classmethod
     def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
@@ -367,12 +397,21 @@ class XTRVChunk(ilff.RawChunk):
 
 class PMTLChunk(ilff.Chunk):
     class PMTLItem(StructModel):
+        """Lightmap parameters (fourcc LTMP = "LightMaP", ``PMTL`` reversed).
+
+        Present as a single entry in every type-3 (lightmapped) model — it is NOT a
+        per-material table. The two leading uint16 are small, near-equal counts (lightmap
+        pieces / atlas metadata; values 2..41 observed across the editor samples); the
+        trailing two are always zero. Exact semantics of the two counts are not yet pinned
+        down — see the MTP material/texture work.
+        """
+
         struct: ClassVar = Struct("<4H")
 
         unknown_01: int
         unknown_02: int
-        unknown_03: int
-        unknown_04: int
+        reserved_01: int
+        reserved_02: int
 
     content: list[PMTLItem]
 

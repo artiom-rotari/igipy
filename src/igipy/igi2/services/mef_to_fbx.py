@@ -315,13 +315,20 @@ def _extract_building(
     list[tuple[float, float, float]],
     list[tuple[int, int, int]],
     None,
-    None,
+    list[tuple[float, float]] | None,
 ]:
-    """Extract positions and faces for building model (type 3)."""
+    """Extract positions, faces, and diffuse UVs for building model (type 3).
+
+    Type-3 vertices carry a diffuse UV set (decoded from the editor's text-MEF sources)
+    but no per-vertex normal — lighting is baked into the lightmap — so normals stay None.
+    ``v.uv_v`` reconstructs the raw source V from the pre-flipped stored value, so the same
+    ``(uv_u, 1.0 - uv_v)`` convention as type 0/1 applies.
+    """
     vertices = mef.xtrv.content_3
     positions = [_position_to_fbx(v.position_x, v.position_y, v.position_z) for v in vertices]
+    uvs = [(v.uv_u, 1.0 - v.uv_v) for v in vertices]
     faces = [(f.index_a, f.index_b, f.index_c) for f in mef.ecaf.content]
-    return positions, faces, None, None
+    return positions, faces, None, uvs
 
 
 def _extract_sems(

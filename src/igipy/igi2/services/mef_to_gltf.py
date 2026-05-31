@@ -537,13 +537,21 @@ def _build_mesh_skeletal(mef: MEF, builder: _GltfBufferBuilder) -> dict:
 
 
 def _build_mesh_building(mef: MEF, builder: _GltfBufferBuilder) -> dict:
-    """Build glTF mesh for building model (type 3) — positions only."""
+    """Build glTF mesh for building model (type 3) — positions + diffuse UVs.
+
+    Type-3 vertices store a diffuse UV set (decoded from the editor's text-MEF sources)
+    but no per-vertex normal (lighting is baked into the lightmap), so normals are omitted.
+    The diffuse V is stored pre-flipped; ``v.uv_v`` reconstructs the raw source V, so the
+    same ``(uv_u, 1.0 - uv_v)`` convention used for type 0/1 applies unchanged.
+    """
     vertices = mef.xtrv.content_3
     if not vertices:
         return _build_mesh_empty()
     positions = [_position_to_gltf(v.position_x, v.position_y, v.position_z) for v in vertices]
+    uvs = [(v.uv_u, 1.0 - v.uv_v) for v in vertices]
     position_accessor = builder.add_vec3_accessor(positions)
-    primitives = _build_primitives(mef, builder, position_accessor, normal_accessor=None, uv_accessor=None)
+    uv_accessor = builder.add_vec2_accessor(uvs)
+    primitives = _build_primitives(mef, builder, position_accessor, normal_accessor=None, uv_accessor=uv_accessor)
     return {"primitives": primitives}
 
 
