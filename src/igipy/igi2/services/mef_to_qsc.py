@@ -20,11 +20,11 @@ from igipy.core.formats.qsc import (
     ExprStatement,
     Literal,
 )
-from igipy.igi2.formats.mef import MEF
-
-MODEL_TYPE_STATIC = 0
-MODEL_TYPE_SKELETAL = 1
-MODEL_TYPE_BUILDING = 3
+from igipy.igi2.formats.mef import (
+    MEF,
+    MODEL_TYPE_SKELETAL,
+    MODEL_TYPE_STATIC,
+)
 
 
 def _call(name: str, *args: float | str | bool) -> ExprStatement:
@@ -46,13 +46,13 @@ def mef_to_qsc(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
 
 def _build_bone_statements(mef: MEF) -> list[ExprStatement]:
     """Build Bone() and BuildHierarchy() calls from REIH + MANB chunks."""
-    if mef.reih is None or mef.manb is None:
+    if not mef.has_skeleton:
         return []
 
     rest_offsets = mef.reih.bones_offsets
-    bone_count = len(mef.reih.content)
+    bone_count = mef.bone_count
     parents = mef.reih.bones_parents
-    names = mef.manb.content[:bone_count]
+    names = mef.bone_names
 
     statements = [
         _call("Bone", i, names[i], parents[i], rest_offsets[i][0], rest_offsets[i][1], rest_offsets[i][2])
@@ -62,34 +62,23 @@ def _build_bone_statements(mef: MEF) -> list[ExprStatement]:
     return statements
 
 
-def _build_vertex_statements(mef: MEF, model_type: int) -> list[ExprStatement]:
-    """Build Vertex() calls from XVTP (preferred) or XTRV (fallback)."""
+def _build_vertex_statements(mef: MEF) -> list[ExprStatement]:
+    """Build Vertex() calls from XVTP (preferred) or the active render vertices."""
     if mef.xvtp is not None and mef.xvtp.content:
         return [
             _call("Vertex", i, vertex.position_x, vertex.position_y, vertex.position_z)
             for i, vertex in enumerate(mef.xvtp.content)
         ]
 
-    if mef.xtrv is None:
-        return []
-
-    content_map = {
-        MODEL_TYPE_STATIC: mef.xtrv.content_0,
-        MODEL_TYPE_SKELETAL: mef.xtrv.content_1,
-        MODEL_TYPE_BUILDING: mef.xtrv.content_3,
-    }
-    vertices = content_map.get(model_type)
-    if vertices is None:
-        return []
-
     return [
-        _call("Vertex", i, vertex.position_x, vertex.position_y, vertex.position_z) for i, vertex in enumerate(vertices)
+        _call("Vertex", i, vertex.position_x, vertex.position_y, vertex.position_z)
+        for i, vertex in enumerate(mef.render_vertices)
     ]
 
 
 def _build_vertex_influence_statements(mef: MEF, model_type: int) -> list[ExprStatement]:
     """Build VertexInfluenceRigid() calls from XTRV bone data (type 1 only)."""
-    if model_type != MODEL_TYPE_SKELETAL or mef.xtrv is None:
+    if model_type != MODEL_TYPE_SKELETAL:
         return []
 
     return [
@@ -102,39 +91,27 @@ def _build_vertex_influence_statements(mef: MEF, model_type: int) -> list[ExprSt
             vertex.position_z,
             vertex.bone_weight,
         )
-        for vertex in mef.xtrv.content_1
+        for vertex in mef.render_vertices
     ]
 
 
 def _build_normal_statements(mef: MEF, model_type: int) -> list[ExprStatement]:
     """Build Normal() calls from XTRV (type 0 and 1 only)."""
-    if mef.xtrv is None:
+    if model_type not in (MODEL_TYPE_STATIC, MODEL_TYPE_SKELETAL):
         return []
 
-    content_map = {
-        MODEL_TYPE_STATIC: mef.xtrv.content_0,
-        MODEL_TYPE_SKELETAL: mef.xtrv.content_1,
-    }
-    vertices = content_map.get(model_type)
-    if vertices is None:
-        return []
-
-    return [_call("Normal", i, vertex.normal_x, vertex.normal_y, vertex.normal_z) for i, vertex in enumerate(vertices)]
+    return [
+        _call("Normal", i, vertex.normal_x, vertex.normal_y, vertex.normal_z)
+        for i, vertex in enumerate(mef.render_vertices)
+    ]
 
 
-def _build_face_statements(mef: MEF, model_type: int) -> list[ExprStatement]:
+def _build_face_statements(mef: MEF) -> list[ExprStatement]:
     """Build Face() calls from ECAF + DNER with material assignment."""
     if mef.ecaf is None or mef.dner is None:
         return []
 
-    if model_type in (MODEL_TYPE_STATIC, MODEL_TYPE_SKELETAL):
-        groups = mef.dner.content_0 if model_type == MODEL_TYPE_STATIC else mef.dner.content_1
-    else:
-        groups = mef.dner.content_3
-
-    face_materials: list[int] = []
-    for group in groups:
-        face_materials.extend([group.group_index] * group.face_count)
+    face_materials = mef.face_material_indices
 
     return [
         _call(
@@ -153,16 +130,12 @@ def _build_face_statements(mef: MEF, model_type: int) -> list[ExprStatement]:
 
 
 def _build_uv_statements(mef: MEF, model_type: int) -> list[ExprStatement]:
-    """Build UV() calls from XTRV per-face vertex data."""
-    if mef.ecaf is None or mef.xtrv is None:
+    """Build UV() calls from XTRV per-face vertex data (type 0 and 1 only)."""
+    if mef.ecaf is None or model_type not in (MODEL_TYPE_STATIC, MODEL_TYPE_SKELETAL):
         return []
 
-    content_map = {
-        MODEL_TYPE_STATIC: mef.xtrv.content_0,
-        MODEL_TYPE_SKELETAL: mef.xtrv.content_1,
-    }
-    vertices = content_map.get(model_type)
-    if vertices is None:
+    vertices = mef.render_vertices
+    if not vertices:
         return []
 
     statements: list[ExprStatement] = []
@@ -191,11 +164,10 @@ def _build_attachment_statements(mef: MEF) -> list[ExprStatement]:
 
     statements: list[ExprStatement] = []
     for item in mef.atta.content:
-        name = item.name.rstrip(b"\x00").decode("ascii", errors="replace")
         statements.append(
             _call(
                 "AttachObject",
-                name,
+                item.name_text,
                 item.attach_index,
                 item.m00,
                 item.m01,
@@ -252,10 +224,10 @@ def _build_standard_statements(mef: MEF) -> list[ExprStatement]:
 
     statements: list[ExprStatement] = [_call("NewObject", ""), _call("BreakScript")]
     statements.extend(_build_bone_statements(mef))
-    statements.extend(_build_vertex_statements(mef, model_type))
+    statements.extend(_build_vertex_statements(mef))
     statements.extend(_build_vertex_influence_statements(mef, model_type))
     statements.extend(_build_normal_statements(mef, model_type))
-    statements.extend(_build_face_statements(mef, model_type))
+    statements.extend(_build_face_statements(mef))
     statements.extend(_build_uv_statements(mef, model_type))
     statements.extend(_build_attachment_statements(mef))
     statements.extend(_build_magic_vertex_statements(mef))
@@ -276,8 +248,8 @@ def _build_sems_statements(mef: MEF) -> list[ExprStatement]:
 
     if mef.cafs is not None:
         statements.extend(
-            _call("Face", i, face.index_a, face.index_b, face.index_c, face.index_a, face.index_b, face.index_c, 0)
-            for i, face in enumerate(mef.cafs.content)
+            _call("Face", i, index_a, index_b, index_c, index_a, index_b, index_c, 0)
+            for i, (index_a, index_b, index_c) in enumerate(mef.cafs.triangles)
         )
 
     return statements

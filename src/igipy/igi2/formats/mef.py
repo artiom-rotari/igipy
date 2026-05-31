@@ -10,6 +10,17 @@ from igipy.core.base import StructModel
 from igipy.core.formats import ilff
 from igipy.igi2.formats.common import REIHChunk
 
+# Model type discriminator stored in HSEM.model_type. Static (0) and skeletal
+# (1) vertices carry per-vertex normals; lightmapped/building (3) vertices do
+# not (lighting is baked into the lightmap). Shared by every MEF exporter.
+MODEL_TYPE_STATIC = 0
+MODEL_TYPE_SKELETAL = 1
+MODEL_TYPE_BUILDING = 3
+
+# Sentinel stored in ATTA.bone_index meaning "this attachment is not parented
+# to any bone" (it attaches to the scene root instead).
+ATTA_NO_BONE = 0xABABABAB
+
 
 class HSEMChunk(ilff.Chunk):
     unknown_01: NonNegativeInt
@@ -91,6 +102,11 @@ class ATTAChunk(ilff.Chunk):
         position_z: float
         attach_index: int
         bone_index: int
+
+        @property
+        def name_text(self) -> str:
+            """Attachment name decoded from the fixed 16-byte field (NUL-trimmed)."""
+            return self.name.rstrip(b"\x00").decode("ascii", errors="replace")
 
     content: list[ATTAItem]
 
@@ -255,15 +271,15 @@ class D3DRChunk(ilff.RawChunk):
 
     @cached_property
     def content_0(self) -> D3DRItem0:
-        return self.parse_content(self.content, self.D3DRItem0)
+        return self.parse_content(self.content, D3DRItem0)
 
     @cached_property
     def content_1(self) -> D3DRItem1:
-        return self.parse_content(self.content, self.D3DRItem1)
+        return self.parse_content(self.content, D3DRItem1)
 
     @cached_property
     def content_3(self) -> D3DRItem3:
-        return self.parse_content(self.content, self.D3DRItem3)
+        return self.parse_content(self.content, D3DRItem3)
 
 
 class DNERChunk(ilff.RawChunk):
@@ -397,11 +413,11 @@ class XTRVChunk(ilff.RawChunk):
 
 class PMTLChunk(ilff.Chunk):
     class PMTLItem(StructModel):
-        """Lightmap parameters (fourcc LTMP = "LightMaP", ``PMTL`` reversed).
+        """Lightmap parameters (fourcc LTMP = "LightMaP", "PMTL" reversed).
 
         Present as a single entry in every type-3 (lightmapped) model — it is NOT a
         per-material table. The two leading uint16 are small, near-equal counts (lightmap
-        pieces / atlas metadata; values 2..41 observed across the editor samples); the
+        pieces / atlas metadata; values it 2..41 observed across the editor samples); the
         trailing two are always zero. Exact semantics of the two counts are not yet pinned
         down — see the MTP material/texture work.
         """
@@ -447,6 +463,11 @@ class ECAFChunk(ilff.Chunk):
     @classmethod
     def model_validate_content(cls, content: bytes) -> dict:
         return {"content": cls.ECAFItem.unpack_many(content)}
+
+    @property
+    def triangles(self) -> list[tuple[int, int, int]]:
+        """Render-mesh triangles as (index_a, index_b, index_c) tuples."""
+        return [(item.index_a, item.index_b, item.index_c) for item in self.content]
 
 
 class MANBChunk(ilff.Chunk):
@@ -703,6 +724,11 @@ class CAFSChunk(ilff.Chunk):
     def model_validate_content(cls, content: bytes) -> dict:
         return {"content": cls.CAFSItem.unpack_many(content)}
 
+    @property
+    def triangles(self) -> list[tuple[int, int, int]]:
+        """SEMS collision-mesh triangles as (index_a, index_b, index_c) tuples."""
+        return [(item.index_a, item.index_b, item.index_c) for item in self.content]
+
 
 class EGDEChunk(ilff.Chunk):
     class EGDEItem(StructModel):
@@ -792,6 +818,95 @@ class MEF(ilff.ILFF):
     @property
     def is_sems_variant(self) -> bool:
         return self.sems is not None
+
+    @property
+    def model_type(self) -> int:
+        """Model type discriminator, SEMS-aware.
+
+        The SEMS collision variant has no HSEM chunk; it is treated as a static
+        (type 0) model, matching how the exporters handle it.
+        """
+        if self.is_sems_variant or self.hsem is None:
+            return MODEL_TYPE_STATIC
+        return self.hsem.model_type
+
+    @property
+    def render_vertices(
+        self,
+    ) -> list[XTRVChunk.XTRVItem0 | XTRVChunk.XTRVItem1 | XTRVChunk.XTRVItem3 | XTVSChunk.XTVSItem]:
+        """Active vertex list for the current model type.
+
+        Standard models return the XTRV variant matching ``model_type``; the SEMS
+        variant returns its XTVS collision vertices. Type-3 (lightmapped/building)
+        vertices carry NO per-vertex normal — lighting is baked into the lightmap.
+        Only the needed XTRV interpretation is parsed (the others are never touched).
+        """
+        if self.is_sems_variant:
+            return self.xtvs.content if self.xtvs is not None else []
+        if self.xtrv is None:
+            return []
+        if self.model_type == MODEL_TYPE_STATIC:
+            return self.xtrv.content_0
+        if self.model_type == MODEL_TYPE_SKELETAL:
+            return self.xtrv.content_1
+        if self.model_type == MODEL_TYPE_BUILDING:
+            return self.xtrv.content_3
+        return []
+
+    @property
+    def render_faces(self) -> list[tuple[int, int, int]]:
+        """Render triangles as index tuples (SEMS uses CAFS, otherwise ECAF)."""
+        if self.is_sems_variant:
+            return self.cafs.triangles if self.cafs is not None else []
+        return self.ecaf.triangles if self.ecaf is not None else []
+
+    @property
+    def render_groups(
+        self,
+    ) -> list[DNERChunk.DNERItem0 | DNERChunk.DNERItem1 | DNERChunk.DNERItem3]:
+        """Active DNER render-group list for the current model type.
+
+        Empty for the SEMS variant or when no DNER chunk is present. Only the
+        needed DNER interpretation is parsed.
+        """
+        if self.dner is None:
+            return []
+        if self.model_type == MODEL_TYPE_STATIC:
+            return self.dner.content_0
+        if self.model_type == MODEL_TYPE_SKELETAL:
+            return self.dner.content_1
+        if self.model_type == MODEL_TYPE_BUILDING:
+            return self.dner.content_3
+        return []
+
+    @property
+    def face_material_indices(self) -> list[int]:
+        """Per-face material (group) index expanded from the DNER render groups.
+
+        Each render group covers ``face_count`` consecutive faces and binds them
+        to its ``group_index``; this flattens that into one entry per face.
+        """
+        material_indices: list[int] = []
+        for group in self.render_groups:
+            material_indices.extend([group.group_index] * group.face_count)
+        return material_indices
+
+    @property
+    def has_skeleton(self) -> bool:
+        """True when both the bone hierarchy (REIH) and bone names (MANB) exist."""
+        return self.reih is not None and self.manb is not None
+
+    @property
+    def bone_count(self) -> int:
+        """Number of bones in the skeleton (0 when there is no REIH chunk)."""
+        return len(self.reih.content) if self.reih is not None else 0
+
+    @property
+    def bone_names(self) -> list[str]:
+        """Bone names from MANB, truncated to ``bone_count`` (empty when absent)."""
+        if self.manb is None:
+            return []
+        return self.manb.content[: self.bone_count]
 
     @classmethod
     def _validate_standard(cls, header: ilff.ILFFHeader, content_type: bytes, content: list[ilff.Chunk]) -> Self:

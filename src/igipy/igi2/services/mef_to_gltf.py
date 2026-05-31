@@ -14,7 +14,12 @@ import struct
 from io import BytesIO
 from pathlib import Path
 
-from igipy.igi2.formats.mef import MEF
+from igipy.igi2.formats.mef import (
+    ATTA_NO_BONE,
+    MEF,
+    MODEL_TYPE_BUILDING,
+    MODEL_TYPE_SKELETAL,
+)
 
 # glTF component type constants
 FLOAT = 5126
@@ -24,15 +29,8 @@ UNSIGNED_INT = 5125
 # IGI2 fixed-point scale: 4096 units = 1 meter.
 SCALE = 1 / 4096
 
-# ATTA sentinel for "no bone"
-ATTA_NO_BONE = 0xABABABAB
-
 UNSIGNED_SHORT_MAX = 65536
 DETERMINANT_EPSILON = 1e-15
-
-MODEL_TYPE_STATIC = 0
-MODEL_TYPE_SKELETAL = 1
-MODEL_TYPE_BUILDING = 3
 
 
 def _position_to_gltf(x: float, y: float, z: float) -> tuple[float, float, float]:
@@ -234,13 +232,13 @@ def _build_skeleton(  # noqa: C901
     Returns (nodes, scene_root_indices, skin_dict_or_None, world_transforms).
     world_transforms[i] is the 4x4 column-major world matrix for bone i.
     """
-    if mef.reih is None or mef.manb is None:
+    if not mef.has_skeleton:
         return [], [], None, []
 
     rest_offsets = mef.reih.bones_offsets
-    bone_count = len(mef.reih.content)
+    bone_count = mef.bone_count
     parents = mef.reih.bones_parents
-    names = mef.manb.content[:bone_count]
+    names = mef.bone_names
 
     nodes: list[dict] = []
     for i in range(bone_count):
@@ -295,9 +293,8 @@ def _build_skeleton(  # noqa: C901
     unparented_attachments: list[int] = []
     if mef.atta is not None:
         for item in mef.atta.content:
-            name = item.name.rstrip(b"\x00").decode("ascii", errors="replace")
             attachment_node: dict = {
-                "name": f"attach_{name}",
+                "name": f"attach_{item.name_text}",
                 "translation": list(_position_to_gltf(item.position_x, item.position_y, item.position_z)),
             }
             attachment_index = len(nodes)
@@ -571,7 +568,7 @@ def _build_mesh_sems(mef: MEF, builder: _GltfBufferBuilder) -> dict:
     return {"primitives": [{"attributes": {"POSITION": position_accessor}, "indices": index_accessor, "mode": 4}]}
 
 
-def _build_primitives(  # noqa: C901, PLR0912, PLR0913
+def _build_primitives(  # noqa: C901, PLR0913
     mef: MEF,
     builder: _GltfBufferBuilder,
     position_accessor: int,
@@ -595,26 +592,16 @@ def _build_primitives(  # noqa: C901, PLR0912, PLR0913
     if mef.ecaf is None:
         return [{"attributes": attributes, "mode": 4}]
 
-    # Collect all face indices
-    all_indices = []
-    for face in mef.ecaf.content:
-        all_indices.extend([face.index_a, face.index_b, face.index_c])
+    # Collect all face indices (flattened triangle index tuples)
+    all_indices = [index for triangle in mef.render_faces for index in triangle]
 
     if not all_indices:
         return [{"attributes": attributes, "mode": 4}]
 
-    # Try to split by render groups from DNER
-    model_type = mef.hsem.model_type
-    groups = None
-    if mef.dner is not None:
-        if model_type == MODEL_TYPE_STATIC:
-            groups = mef.dner.content_0
-        elif model_type == MODEL_TYPE_SKELETAL:
-            groups = mef.dner.content_1
-        elif model_type == MODEL_TYPE_BUILDING:
-            groups = mef.dner.content_3
+    # Split by render groups from DNER (empty when absent or single-group)
+    groups = mef.render_groups
 
-    if groups is None or len(groups) <= 1:
+    if len(groups) <= 1:
         index_accessor = builder.add_indices_accessor(all_indices)
         return [{"attributes": attributes, "indices": index_accessor, "mode": 4}]
 

@@ -23,15 +23,13 @@ from igipy.core.formats.fbx import (
     FBXSkin,
     IdGenerator,
 )
-from igipy.igi2.formats.mef import MEF
-from igipy.igi2.services.iff_to_fbx import (
+from igipy.igi2.formats.mef import (
     ATTA_NO_BONE,
-    _position_to_fbx,
+    MEF,
+    MODEL_TYPE_BUILDING,
+    MODEL_TYPE_SKELETAL,
 )
-
-MODEL_TYPE_STATIC = 0
-MODEL_TYPE_SKELETAL = 1
-MODEL_TYPE_BUILDING = 3
+from igipy.igi2.services.iff_to_fbx import _position_to_fbx
 
 
 def _normal_to_fbx(x: float, y: float, z: float) -> tuple[float, float, float]:
@@ -284,12 +282,11 @@ def _extract_static(
     list[tuple[float, float]] | None,
 ]:
     """Extract positions, faces, normals, uvs for static model (type 0)."""
-    vertices = mef.xtrv.content_0
-    positions = [_position_to_fbx(v.position_x, v.position_y, v.position_z) for v in vertices]
-    normals = [_normal_to_fbx(v.normal_x, v.normal_y, v.normal_z) for v in vertices]
-    uvs = [(v.uv_u, 1.0 - v.uv_v) for v in vertices]
-    faces = [(f.index_a, f.index_b, f.index_c) for f in mef.ecaf.content]
-    return positions, faces, normals, uvs
+    vertices = mef.render_vertices
+    positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
+    normals = [_normal_to_fbx(vertex.normal_x, vertex.normal_y, vertex.normal_z) for vertex in vertices]
+    uvs = [(vertex.uv_u, 1.0 - vertex.uv_v) for vertex in vertices]
+    return positions, mef.render_faces, normals, uvs
 
 
 def _extract_skeletal(
@@ -301,12 +298,11 @@ def _extract_skeletal(
     list[tuple[float, float]] | None,
 ]:
     """Extract positions, faces, normals, uvs for skeletal model (type 1)."""
-    vertices = mef.xtrv.content_1
-    positions = [_position_to_fbx(v.position_x, v.position_y, v.position_z) for v in vertices]
-    normals = [_normal_to_fbx(v.normal_x, v.normal_y, v.normal_z) for v in vertices]
-    uvs = [(v.uv_u, 1.0 - v.uv_v) for v in vertices]
-    faces = [(f.index_a, f.index_b, f.index_c) for f in mef.ecaf.content]
-    return positions, faces, normals, uvs
+    vertices = mef.render_vertices
+    positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
+    normals = [_normal_to_fbx(vertex.normal_x, vertex.normal_y, vertex.normal_z) for vertex in vertices]
+    uvs = [(vertex.uv_u, 1.0 - vertex.uv_v) for vertex in vertices]
+    return positions, mef.render_faces, normals, uvs
 
 
 def _extract_building(
@@ -324,11 +320,10 @@ def _extract_building(
     ``v.uv_v`` reconstructs the raw source V from the pre-flipped stored value, so the same
     ``(uv_u, 1.0 - uv_v)`` convention as type 0/1 applies.
     """
-    vertices = mef.xtrv.content_3
-    positions = [_position_to_fbx(v.position_x, v.position_y, v.position_z) for v in vertices]
-    uvs = [(v.uv_u, 1.0 - v.uv_v) for v in vertices]
-    faces = [(f.index_a, f.index_b, f.index_c) for f in mef.ecaf.content]
-    return positions, faces, None, uvs
+    vertices = mef.render_vertices
+    positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
+    uvs = [(vertex.uv_u, 1.0 - vertex.uv_v) for vertex in vertices]
+    return positions, mef.render_faces, None, uvs
 
 
 def _extract_sems(
@@ -340,9 +335,9 @@ def _extract_sems(
     None,
 ]:
     """Extract positions and faces for SEMS variant."""
-    positions = [_position_to_fbx(v.position_x, v.position_y, v.position_z) for v in mef.xtvs.content]
-    faces = [(f.index_a, f.index_b, f.index_c) for f in mef.cafs.content]
-    return positions, faces, None, None
+    vertices = mef.render_vertices
+    positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
+    return positions, mef.render_faces, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +354,7 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
 
     # Determine model type and extract geometry
     is_sems = mef.is_sems_variant
-    model_type = 0 if is_sems else mef.hsem.model_type
+    model_type = mef.model_type
     is_skeletal = not is_sems and model_type == MODEL_TYPE_SKELETAL
 
     if is_sems:
@@ -397,11 +392,11 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
     parents: list[int] = []
     world_transforms: list[list[float]] = []
 
-    if is_skeletal and mef.reih is not None and mef.manb is not None:
+    if is_skeletal and mef.has_skeleton:
         rest_offsets = mef.reih.bones_offsets
-        bone_count = len(mef.reih.content)
+        bone_count = mef.bone_count
         parents = mef.reih.bones_parents
-        bone_names = mef.manb.content[:bone_count]
+        bone_names = mef.bone_names
         bone_ids = [id_gen() for _ in range(bone_count)]
         bone_attribute_ids = [id_gen() for _ in range(bone_count)]
         world_transforms = _compute_world_transforms(bone_count, rest_offsets, parents)
@@ -431,11 +426,11 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
         cluster_ids = [id_gen() for _ in range(bone_count)]
 
         # Group vertices by bone
-        bone_verts: dict[int, list[int]] = defaultdict(list)
+        bone_vertices: dict[int, list[int]] = defaultdict(list)
         bone_weights: dict[int, list[float]] = defaultdict(list)
-        for vi, v in enumerate(mef.xtrv.content_1):
-            bone_verts[v.bone_index].append(vi)
-            bone_weights[v.bone_index].append(v.bone_weight)
+        for vertex_index, vertex in enumerate(mef.render_vertices):
+            bone_vertices[vertex.bone_index].append(vertex_index)
+            bone_weights[vertex.bone_index].append(vertex.bone_weight)
 
         clusters: list[FBXCluster] = []
         for bi in range(bone_count):
@@ -444,7 +439,7 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                 FBXCluster(
                     id=cluster_ids[bi],
                     name=bone_names[bi],
-                    indexes=bone_verts.get(bi, []),
+                    indexes=bone_vertices.get(bi, []),
                     weights=bone_weights.get(bi, []),
                     transform=inverse_bind,
                     transform_link=world_transforms[bi],
@@ -471,7 +466,7 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
         attachment_attribute_ids = [id_gen() for _ in range(len(mef.atta.content))]
 
         for i, item in enumerate(mef.atta.content):
-            attachment_name = "attach_" + item.name.rstrip(b"\x00").decode("ascii", errors="replace")
+            attachment_name = "attach_" + item.name_text
             translation_x, translation_y, translation_z = _position_to_fbx(
                 item.position_x, item.position_y, item.position_z
             )
