@@ -8,11 +8,11 @@ from `igipy igi2 extensions-of-collect` (the collected source). Total: 52540 fil
 | Extension         | Count | Status                         |
 |-------------------|-------|--------------------------------|
 | .olm              | 32532 | Can be ignored                 |
-| .mef              | 7609  | Can be converted to fbx / gltf |
+| .mef              | 7609  | Can be converted to fbx        |
 | .tex              | 5369  | Can be converted to tga        |
 | .qvm              | 1786  | Can be converted to qsc        |
 | .wav              | 1634  | Can be converted to wav        |
-| .iff              | 1244  | Can be converted to json / gltf / fbx |
+| .iff              | 1244  | Can be converted to fbx        |
 | .mp3              | 615   | Copy as is                     |
 | .syn              | 369   | Can be converted to json       |
 | .spr              | 257   | Can be converted to tga        |

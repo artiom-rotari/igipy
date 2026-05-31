@@ -735,7 +735,7 @@ Answered earlier by analysis of reverse-engineered text MEF source files:
 
 - **Bone parent-child topology**: ✅ SOLVED — `Bone(id, name, parent_id, x, y, z)` explicitly stores parent index. The
   REIH binary format stores BFS-ordered child counts instead, and parent indices are reconstructed via the
-  `_build_parent_map()` algorithm in `iff_to_gltf.py`.
+  `REIHChunk.bones_parents` property in `igi2/formats/common.py`.
 
 - **ATTA fields**: ✅ SOLVED — `AttachObject(name, id, 9×rotation, 3×position)` confirms 3×3 rotation matrix + position.
   `AttachObjectBoneID(id, bone_index)` confirms the bone attachment field.
@@ -757,7 +757,7 @@ Ordered by impact on conversion quality:
 |----------|--------------------------------------|------------------------------------------|-------------------------------------------------------------------------|
 | 1        | Type-3 vertex UVs                    | Unlocks textured export for 71% of files | ✅ Solved (Map Editor)                                                   |
 | 2        | Material-to-texture mapping (binary) | Enables textured export for all types    | ✅ Partially solved — group↔material positional; filename via MTP/naming |
-| 3        | Bone parent topology                 | Enables skeletal export (glTF/FBX)       | ✅ Solved                                                                |
+| 3        | Bone parent topology                 | Enables skeletal export (FBX)            | ✅ Solved                                                                |
 | 4        | PMTL table                           | Completes type-3 material data           | ✅ Reclassified as LTMP lightmap params                                  |
 | 5        | HPRM morph targets                   | Enables facial animation export          | Partially solved (no editor sample)                                     |
 | 6        | ATTA fields                          | Attachment point structure               | ✅ Solved                                                                |

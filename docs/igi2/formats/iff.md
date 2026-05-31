@@ -165,7 +165,7 @@ The engine uses fixed-point precision: **4096 game units = 1 meter** (2^12, enab
 31-bone skeleton measures ~7319 units from foot to head end, yielding 1.787m (5'10") — the industry-standard default
 male character height.
 
-The coordinate system is **Z-up, left-handed**: X = right, Y = forward, Z = up. When exporting to glTF (Y-up,
+The coordinate system is **Z-up, left-handed**: X = right, Y = forward, Z = up. When exporting to FBX (Y-up,
 right-handed), positions transform as `(x, y, z) → (x, z, -y)` and quaternions as
 `(qx, qy, qz, qw) → (qx, qz, -qy, qw)`.
 
