@@ -94,12 +94,9 @@ accepts `--dry` to preview without writing.
 | `convert-dat-forest-to-json` | `forest_*.dat` vegetation placement → `.json`. |
 | `convert-dat-graph-to-json` | `graph*.dat` AI navigation graphs → `.json`. |
 | `convert-dat-graphcover-to-json` | `graphcover*.dat` AI cover/visibility data → `.json`. |
-| `convert-iff-to-json` | `.iff` skeletal animation → `.json`. |
-| `convert-iff-to-gltf` | `.iff` skeletal animation → glTF. |
 | `convert-iff-to-fbx` | `.iff` skeletal animation → FBX. |
 | `convert-iff-to-qsc` | `.iff` skeletal animation → `.bef` text source. |
 | `convert-mef-to-fbx` | `.mef` 3D model → FBX. |
-| `convert-mef-to-gltf` | `.mef` 3D model → glTF. |
 | `convert-mef-to-qsc` | `.mef` 3D model → text source. |
 | `res-to-zip <file.res>` | Convert a single `.res` file to `.zip` / `.json`. |
 | `extensions-of-game` | Print a file-type count table for the game install directory. |

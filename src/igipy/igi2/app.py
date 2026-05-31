@@ -19,11 +19,8 @@ from igipy.igi2.services.dat_graph_to_json import dat_graph_to_json
 from igipy.igi2.services.dat_graphcover_to_json import dat_graphcover_to_json
 from igipy.igi2.services.fnt_to_zip import fnt_to_zip
 from igipy.igi2.services.iff_to_fbx import iff_to_fbx
-from igipy.igi2.services.iff_to_gltf import iff_to_gltf
-from igipy.igi2.services.iff_to_json import iff_to_json
 from igipy.igi2.services.iff_to_qsc import iff_to_qsc
 from igipy.igi2.services.mef_to_fbx import mef_to_fbx
-from igipy.igi2.services.mef_to_gltf import mef_to_gltf
 from igipy.igi2.services.mef_to_qsc import mef_to_qsc
 from igipy.igi2.services.olm_to_tga import olm_to_tga
 from igipy.igi2.services.syn_to_json import syn_to_json
@@ -254,27 +251,11 @@ def igi2_convert_dat_graphcover_to_json(dry: bool = False) -> None:
 
 
 @igi2_app.command(
-    name="convert-iff-to-json",
-    short_help="Convert .iff files from collect source to .json animation data in convert destination",
-)
-def igi2_convert_iff_to_json(dry: bool = False) -> None:
-    _run_convert(converter=iff_to_json, patterns=["*.iff"], dry=dry)
-
-
-@igi2_app.command(
     name="convert-olm-to-tga",
     short_help="Convert .olm files from collect source to .tga object lightmap images in convert destination",
 )
 def igi2_convert_olm_to_tga(dry: bool = False) -> None:
     _run_convert(converter=olm_to_tga, patterns=["*.olm"], dry=dry)
-
-
-@igi2_app.command(
-    name="convert-iff-to-gltf",
-    short_help="Convert .iff files from collect source to .gltf skeleton animation in convert destination",
-)
-def igi2_convert_iff_to_gltf(dry: bool = False) -> None:
-    _run_convert(converter=iff_to_gltf, patterns=["*.iff"], dry=dry)
 
 
 @igi2_app.command(
@@ -299,14 +280,6 @@ def igi2_convert_iff_to_qsc(dry: bool = False) -> None:
 )
 def igi2_convert_mef_to_fbx(dry: bool = False) -> None:
     _run_convert(converter=mef_to_fbx, patterns=["*.mef"], dry=dry)
-
-
-@igi2_app.command(
-    name="convert-mef-to-gltf",
-    short_help="Convert .mef files from collect source to .gltf 3D model in convert destination",
-)
-def igi2_convert_mef_to_gltf(dry: bool = False) -> None:
-    _run_convert(converter=mef_to_gltf, patterns=["*.mef"], dry=dry)
 
 
 @igi2_app.command(

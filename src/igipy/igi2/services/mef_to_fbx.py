@@ -5,6 +5,7 @@ Produces a triangle mesh with positions, normals, and UVs. Skeletal models
 result can be imported into Unity, Blender, Maya, or any FBX-compatible tool.
 """
 
+import logging
 import math
 from collections import defaultdict
 from io import BytesIO
@@ -30,11 +31,29 @@ from igipy.igi2.formats.mef import (
     MODEL_TYPE_SKELETAL,
 )
 from igipy.igi2.services.iff_to_fbx import _position_to_fbx
+from igipy.igi2.services.mesh_normals import compute_vertex_normals
+
+logger = logging.getLogger(__name__)
 
 
 def _normal_to_fbx(x: float, y: float, z: float) -> tuple[float, float, float]:
     """Convert normal from IGI2 Z-up to FBX Y-up (no scale)."""
     return x, z, -y
+
+
+def reverse_triangle_winding(faces: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
+    """Swap the 2nd and 3rd index of every triangle to flip its front/back face.
+
+    IGI2 winds front faces clockwise (left-handed / DirectX convention; the
+    authored normals match "(c - a) x (b - a)" of the stored winding). The
+    Z-up -> Y-up swizzle in "_position_to_fbx" is a pure rotation (determinant
+    +1), so it preserves that clockwise winding. FBX / Unity treat counter-clockwise as front-facing,
+    so every camera-facing triangle would otherwise be
+    culled as a back face (you see the far wall through the near one). Reversing
+    the winding makes the camera-facing side render. Vertices are not moved, so
+    the geometry is not mirrored; only the front/back convention changes.
+    """
+    return [(index_a, index_c, index_b) for index_a, index_b, index_c in faces]
 
 
 def _rotation_matrix_to_euler(  # noqa: PLR0913
@@ -74,41 +93,47 @@ def _rotation_matrix_to_euler(  # noqa: PLR0913
 # ---------------------------------------------------------------------------
 
 
+def _accumulate_bone_offsets(
+    bone_offsets: list[tuple[float, float, float]],
+    bone_parents: list[int],
+) -> list[tuple[float, float, float]]:
+    """Accumulate REIH bone offsets down the parent chain into absolute model-space positions.
+
+    REIH stores each bone's offset RELATIVE to its parent (verified: summing the chain
+    reconstructs a correctly proportioned standing humanoid ~1.8 m tall — feet at z~0,
+    head at the top — while the raw offsets do not). A bone's world position is therefore
+    the running sum of its own offset plus every ancestor's offset. REIH bones are ordered
+    parent-before-child (the parent index is always smaller than the child index), so a
+    single forward pass can read the parent's already-accumulated position.
+    """
+    accumulated: list[tuple[float, float, float]] = []
+    for index, (offset_x, offset_y, offset_z) in enumerate(bone_offsets):
+        parent_index = bone_parents[index] if index < len(bone_parents) else -1
+        if 0 <= parent_index < len(accumulated):
+            parent_x, parent_y, parent_z = accumulated[parent_index]
+        else:
+            parent_x, parent_y, parent_z = 0.0, 0.0, 0.0
+        accumulated.append((parent_x + offset_x, parent_y + offset_y, parent_z + offset_z))
+    return accumulated
+
+
 def _compute_world_transforms(
     bone_count: int,
     rest_offsets: list[tuple[float, float, float]],
-    parents: list[int],
 ) -> list[list[float]]:
-    """Compute 4x4 row-major world transform for each bone."""
+    """Compute each bone's 4x4 row-major world transform.
+
+    ``rest_offsets`` are ABSOLUTE model-space bone positions (the accumulated REIH offsets
+    from ``_accumulate_bone_offsets``), so they are used directly as the translation of a
+    translation-only world transform (REIH carries no per-bone rotation).
+    """
     world_transforms: list[list[float]] = []
     for i in range(bone_count):
         if i < len(rest_offsets):
             translation_x, translation_y, translation_z = _position_to_fbx(*rest_offsets[i])
         else:
             translation_x, translation_y, translation_z = 0.0, 0.0, 0.0
-        local = [
-            1,
-            0,
-            0,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            1,
-            0,
-            translation_x,
-            translation_y,
-            translation_z,
-            1,
-        ]
-        parent_index = parents[i]
-        world = (
-            _mat4_mul_row(world_transforms[parent_index], local) if 0 <= parent_index < len(world_transforms) else local
-        )
-        world_transforms.append(world)
+        world_transforms.append([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, translation_x, translation_y, translation_z, 1])
     return world_transforms
 
 
@@ -291,17 +316,44 @@ def _extract_static(
 
 def _extract_skeletal(
     mef: MEF,
+    accumulated_bone_offsets: list[tuple[float, float, float]],
 ) -> tuple[
     list[tuple[float, float, float]],
     list[tuple[int, int, int]],
     list[tuple[float, float, float]] | None,
     list[tuple[float, float]] | None,
 ]:
-    """Extract positions, faces, normals, uvs for skeletal model (type 1)."""
+    """Extract positions, faces, normals, uvs for skeletal model (type 1).
+
+    Type-1 vertices are stored in BONE-LOCAL space — each position is relative to the
+    frame of its own ``bone_index``. To place them in model space for the bind pose, add
+    the bone's absolute offset (``accumulated_bone_offsets``, summed down the REIH
+    hierarchy). Without this every limb stays at its bone-local origin and the whole mesh
+    collapses onto the hip/origin (the "all parts inside the chest" symptom). Bone frames
+    are translation-only here, so the per-vertex normals are unaffected and stay as stored.
+    When the skeleton is absent the local positions are emitted unchanged.
+    """
     vertices = mef.render_vertices
-    positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
     normals = [_normal_to_fbx(vertex.normal_x, vertex.normal_y, vertex.normal_z) for vertex in vertices]
     uvs = [(vertex.uv_u, 1.0 - vertex.uv_v) for vertex in vertices]
+    bone_count = len(accumulated_bone_offsets)
+    if bone_count:
+        positions = []
+        for vertex in vertices:
+            bone_index = vertex.bone_index
+            if 0 <= bone_index < bone_count:
+                offset_x, offset_y, offset_z = accumulated_bone_offsets[bone_index]
+            else:
+                offset_x, offset_y, offset_z = 0.0, 0.0, 0.0
+            positions.append(
+                _position_to_fbx(
+                    vertex.position_x + offset_x,
+                    vertex.position_y + offset_y,
+                    vertex.position_z + offset_z,
+                )
+            )
+    else:
+        positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
     return positions, mef.render_faces, normals, uvs
 
 
@@ -310,7 +362,7 @@ def _extract_building(
 ) -> tuple[
     list[tuple[float, float, float]],
     list[tuple[int, int, int]],
-    None,
+    list[tuple[float, float, float]],
     list[tuple[float, float]] | None,
 ]:
     """Extract positions, faces, and diffuse UVs for building model (type 3).
@@ -323,7 +375,11 @@ def _extract_building(
     vertices = mef.render_vertices
     positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
     uvs = [(vertex.uv_u, 1.0 - vertex.uv_v) for vertex in vertices]
-    return positions, mef.render_faces, None, uvs
+    faces = mef.render_faces
+    # Type-3 stores no per-vertex normal; generate them so Unity does not
+    # recalculate (which produces inverted / see-through faces).
+    normals = compute_vertex_normals(positions, faces)
+    return positions, faces, normals, uvs
 
 
 def _extract_sems(
@@ -357,14 +413,28 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
     model_type = mef.model_type
     is_skeletal = not is_sems and model_type == MODEL_TYPE_SKELETAL
 
+    # Skeletal vertices are stored bone-local and REIH offsets are relative; accumulate the
+    # offsets down the hierarchy to get each bone's absolute model-space position, then bake
+    # those into the vertices so the skeleton stands up instead of collapsing onto the hip.
+    accumulated_bone_offsets: list[tuple[float, float, float]] = []
+    if is_skeletal and mef.has_skeleton:
+        accumulated_bone_offsets = _accumulate_bone_offsets(mef.reih.bones_offsets, mef.reih.bones_parents)
+
     if is_sems:
         positions, faces, normals, uvs = _extract_sems(mef)
     elif model_type == MODEL_TYPE_SKELETAL:
-        positions, faces, normals, uvs = _extract_skeletal(mef)
+        positions, faces, normals, uvs = _extract_skeletal(mef, accumulated_bone_offsets)
     elif model_type == MODEL_TYPE_BUILDING:
         positions, faces, normals, uvs = _extract_building(mef)
     else:
         positions, faces, normals, uvs = _extract_static(mef)
+
+    # IGI2 winds front faces clockwise; FBX/Unity expect counter-clockwise, so the
+    # camera-facing triangles get culled (the near wall is invisible, only the far
+    # wall shows). Reverse the winding for emission. Normals were already computed
+    # from the original winding above and point outward, so they stay unchanged.
+    faces = reverse_triangle_winding(faces)
+    logger.debug("[FIX] reversed triangle winding for FBX: model=%s type=%s triangles=%d", name, model_type, len(faces))
 
     # Core objects
     geometry_id = id_gen()
@@ -393,13 +463,22 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
     world_transforms: list[list[float]] = []
 
     if is_skeletal and mef.has_skeleton:
-        rest_offsets = mef.reih.bones_offsets
+        # Absolute (accumulated) bone positions: world transforms, bind pose, and the
+        # per-bone local translation (offset[i] = world[i] - world[parent]) all derive
+        # from these, matching the world-space vertices baked in _extract_skeletal.
+        rest_offsets = accumulated_bone_offsets
         bone_count = mef.bone_count
         parents = mef.reih.bones_parents
         bone_names = mef.bone_names
         bone_ids = [id_gen() for _ in range(bone_count)]
         bone_attribute_ids = [id_gen() for _ in range(bone_count)]
-        world_transforms = _compute_world_transforms(bone_count, rest_offsets, parents)
+        world_transforms = _compute_world_transforms(bone_count, rest_offsets)
+        logger.debug(
+            "[FIX] skeletal world placement: model=%s bones=%d vertices=%d",
+            name,
+            bone_count,
+            len(positions),
+        )
 
         for i in range(bone_count):
             node_attributes.append(
@@ -410,7 +489,20 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     type_flags="Skeleton",
                 )
             )
-            translation = _position_to_fbx(*rest_offsets[i]) if i < len(rest_offsets) else (0.0, 0.0, 0.0)
+            # rest_offsets are absolute (accumulated); a bone node's LOCAL translation is
+            # its world position minus its parent's (which equals the raw REIH offset), so
+            # the node hierarchy reproduces the absolute world (matching transform_link).
+            world_translation = _position_to_fbx(*rest_offsets[i]) if i < len(rest_offsets) else (0.0, 0.0, 0.0)
+            parent_index = parents[i]
+            if 0 <= parent_index < len(rest_offsets):
+                parent_translation = _position_to_fbx(*rest_offsets[parent_index])
+            else:
+                parent_translation = (0.0, 0.0, 0.0)
+            translation = (
+                world_translation[0] - parent_translation[0],
+                world_translation[1] - parent_translation[1],
+                world_translation[2] - parent_translation[2],
+            )
             models.append(FBXModel(id=bone_ids[i], name=bone_names[i], type="LimbNode", translation=translation))
 
         # Bone connections: NodeAttribute -> Model, bone hierarchy
@@ -425,22 +517,25 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
         skin_id = id_gen()
         cluster_ids = [id_gen() for _ in range(bone_count)]
 
-        # Group vertices by bone
+        # Group vertices by bone. IGI2 skeletal influence is RIGID: each vertex
+        # binds 100% to its single bone. The stored bone_weight is not a usable
+        # skin weight (often < 1.0, sometimes 0.0); feeding it to Unity leaves a
+        # vertex's total weight < 1, so the unassigned remainder pulls it toward
+        # the origin and the mesh collapses into the chest. Use weight 1.0.
         bone_vertices: dict[int, list[int]] = defaultdict(list)
-        bone_weights: dict[int, list[float]] = defaultdict(list)
         for vertex_index, vertex in enumerate(mef.render_vertices):
             bone_vertices[vertex.bone_index].append(vertex_index)
-            bone_weights[vertex.bone_index].append(vertex.bone_weight)
 
         clusters: list[FBXCluster] = []
         for bi in range(bone_count):
             inverse_bind = _mat4_inverse_row(world_transforms[bi])
+            vertex_indexes = bone_vertices.get(bi, [])
             clusters.append(
                 FBXCluster(
                     id=cluster_ids[bi],
                     name=bone_names[bi],
-                    indexes=bone_vertices.get(bi, []),
-                    weights=bone_weights.get(bi, []),
+                    indexes=vertex_indexes,
+                    weights=[1.0] * len(vertex_indexes),
                     transform=inverse_bind,
                     transform_link=world_transforms[bi],
                 )

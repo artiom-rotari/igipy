@@ -33,8 +33,11 @@ from igipy.igi2.formats.iff import (
     TNVETrigger,
 )
 
-# IGI2 uses fixed-point precision: 4096 units (2^12) = 1 meter.
-SCALE = 1 / 4096
+# IGI2 uses fixed-point precision: 4096 units (2^12) = 1 meter. FBX's working
+# unit is centimeters (GlobalSettings UnitScaleFactor = 1), so positions must be
+# emitted in centimeters: divide by 40.96 (= 4096 / 100). Dividing by 4096
+# (meters) instead makes Unity/3ds Max read the model 100x too small.
+SCALE = 100 / 4096
 
 QUATERNION_EPSILON = 1e-10
 

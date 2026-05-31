@@ -10,7 +10,7 @@ from zipfile import ZipFile
 # (ZIP_STORED) keeps writes cheap and reduces corruption risk if a write is interrupted; small
 # textual outputs (json, qsc, fnt, ...) still benefit from ZIP_DEFLATED.
 STORED_SUFFIXES: frozenset[str] = frozenset(
-    {".wav", ".mp3", ".tga", ".bmp", ".jpg", ".jpeg", ".avi", ".fbx", ".gltf", ".glb"}
+    {".wav", ".mp3", ".tga", ".bmp", ".jpg", ".jpeg", ".avi", ".fbx"}
 )
 
 
