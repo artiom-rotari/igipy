@@ -1,11 +1,20 @@
 from io import BytesIO
 from struct import Struct
-from typing import ClassVar, Literal, Self
+from typing import ClassVar, Literal, Self, TypeVar
 
 from pydantic import Field, NonNegativeInt
 
 from igipy.core.base import StructModel
 from igipy.core.formats import ilff
+
+T = TypeVar("T", bound=ilff.Chunk)
+
+
+def get_chunk_by_type(chunks: list[ilff.Chunk], chunk_type: type[T]) -> T:  # noqa: UP047
+    for c in chunks:
+        if isinstance(c, chunk_type):
+            return c
+    raise KeyError(chunk_type)
 
 
 class FNTHChunk(ilff.Chunk):
@@ -198,16 +207,14 @@ class FNT(ilff.ILFF):
         if content_type != b"FONT":
             raise ValueError(f"Expected FONT content type, got {content_type}")
 
-        chunks_by_type = {type(c): c for c in chunks}
-
         return cls(
             header=header,
             content_type=content_type,
-            font_header=chunks_by_type[FNTHChunk],
-            glyph_metrics=chunks_by_type[ANMFChunk],
-            char_mapping=chunks_by_type[TRN2Chunk],
-            texture_header=chunks_by_type[TEXHChunk],
-            texture_body=chunks_by_type[BODYChunk],
+            font_header=get_chunk_by_type(chunks, FNTHChunk),
+            glyph_metrics=get_chunk_by_type(chunks, ANMFChunk),
+            char_mapping=get_chunk_by_type(chunks, TRN2Chunk),
+            texture_header=get_chunk_by_type(chunks, TEXHChunk),
+            texture_body=get_chunk_by_type(chunks, BODYChunk),
         )
 
     def model_dump_stream(self) -> tuple[BytesIO, str]:

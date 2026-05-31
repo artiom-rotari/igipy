@@ -1,4 +1,3 @@
-import zipfile
 from collections.abc import Generator
 from io import BytesIO
 from pathlib import Path
@@ -22,35 +21,26 @@ class IGI2Manager(BaseManager):
 
         return value
 
-    def read_from_collect_zip(self, patterns: list[str]) -> Generator[tuple[BytesIO, Path, Path]]:
-        with zipfile.ZipFile(self.collect_path, "r") as zip_file:
-            for file_info in zip_file.infolist():
-                source_path = Path(file_info.filename)
-
-                if any(source_path.match(pattern) for pattern in patterns):
-                    source_stream = BytesIO(zip_file.read(file_info))
-                    yield source_stream, source_path, self.collect_path
-
     def read_all_wav(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.wav"])
+        yield from self.read_from_collect(patterns=["**/*.wav"])
 
     def read_all_qvm(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.qvm"])
+        yield from self.read_from_collect(patterns=["**/*.qvm"])
 
     def read_all_tex(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.tex", "**/*.spr", "**/*.pic"])
+        yield from self.read_from_collect(patterns=["**/*.tex", "**/*.spr", "**/*.pic"])
 
     def read_all_mef(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.mef"])
+        yield from self.read_from_collect(patterns=["**/*.mef"])
 
     def read_all_mtp(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.mtp"])
+        yield from self.read_from_collect(patterns=["**/*.mtp"])
 
     def read_all_syn(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.syn"])
+        yield from self.read_from_collect(patterns=["**/*.syn"])
 
     def read_all_iff(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.iff"])
+        yield from self.read_from_collect(patterns=["**/*.iff"])
 
     def read_all_olm(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
-        yield from self.read_from_collect_zip(patterns=["**/*.olm"])
+        yield from self.read_from_collect(patterns=["**/*.olm"])

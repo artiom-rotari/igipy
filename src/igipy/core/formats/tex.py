@@ -18,7 +18,7 @@ class TEX(FileModel):
 
     @classmethod
     def model_validate_stream(cls, stream: BytesIO) -> Self:
-        signature, version = unpack("4sI", stream.read(8))
+        _, version = unpack("4sI", stream.read(8))
 
         stream.seek(0)
 

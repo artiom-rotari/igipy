@@ -241,7 +241,7 @@ def _write_tlv_entry(stream: BytesIO, property_hash: int, type_code: int, payloa
 
 
 class DATGraph(FileModel):
-    """Graph DAT — AI navigation graph with nodes and edges."""
+    """DAT Graph — AI navigation graph with nodes and edges."""
 
     max_node_capacity: NonNegativeInt
     nodes: list[GraphNode]

@@ -1,5 +1,5 @@
 from abc import ABC
-from enum import Enum
+from enum import StrEnum
 from functools import singledispatchmethod
 from io import BytesIO
 
@@ -25,7 +25,7 @@ class Variable(Expression):
 
 
 class UnaryOp(Expression):
-    class Operator(str, Enum):
+    class Operator(StrEnum):
         PLUS = "+"
         MINUS = "-"
         INV = "~"
@@ -45,7 +45,7 @@ class UnaryOp(Expression):
 
 
 class BinaryOp(Expression):
-    class Operator(str, Enum):
+    class Operator(StrEnum):
         SUM = "+"
         SUB = "-"
         MUL = "*"

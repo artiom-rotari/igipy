@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, StrEnum
 from io import BytesIO
 from struct import Struct
 from typing import ClassVar, Literal, Self
@@ -11,7 +11,7 @@ UINT_04 = range(2**4)
 UINT_16 = range(2**16)
 
 
-class PixelFormat(str, Enum):
+class PixelFormat(StrEnum):
     ARGB1555 = "ARGB1555"
     ARGB8888 = "ARGB8888"
 

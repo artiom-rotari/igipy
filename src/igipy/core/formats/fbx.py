@@ -46,12 +46,10 @@ class _Writer:
         self._lines.append("\t" * self._indent + text if text else "")
 
     def section(self, name: str) -> None:
-        """Begin a section block: ``Name:  {``."""
         self._lines.append("\t" * self._indent + name + ":  {")
         self._indent += 1
 
     def begin(self, text: str) -> None:
-        """Begin an object block: ``<text> {``."""
         self._lines.append("\t" * self._indent + text + " {")
         self._indent += 1
 

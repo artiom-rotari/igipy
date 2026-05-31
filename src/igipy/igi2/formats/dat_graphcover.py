@@ -57,7 +57,7 @@ class AICNChunk(ilff.Chunk):
 
 
 class DATGraphCover(ilff.ILFF):
-    """Graphcover DAT — AI cover/visibility data in ILFF container."""
+    """DAT Graphcover — AI cover/visibility data in ILFF container."""
 
     chunk_mapping: ClassVar[dict[bytes, type[ilff.Chunk]]] = {
         b"AICH": AICHChunk,

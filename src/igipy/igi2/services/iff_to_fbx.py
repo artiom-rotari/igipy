@@ -143,7 +143,12 @@ def _normalize_quaternion(x: float, y: float, z: float, w: float) -> tuple[float
     if length < QUATERNION_EPSILON:
         return 0.0, 0.0, 0.0, 1.0
     inverse_length = 1.0 / length
-    return x * inverse_length, y * inverse_length, z * inverse_length, w * inverse_length
+    return (
+        x * inverse_length,
+        y * inverse_length,
+        z * inverse_length,
+        w * inverse_length,
+    )
 
 
 def _quaternion_to_fbx(x: float, y: float, z: float, w: float) -> tuple[float, float, float, float]:
@@ -164,7 +169,11 @@ def _quaternion_to_euler(qx: float, qy: float, qz: float, qw: float) -> tuple[fl
     cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
     yaw = math.atan2(siny_cosp, cosy_cosp)
 
-    return round(math.degrees(roll), 4), round(math.degrees(pitch), 4), round(math.degrees(yaw), 4)
+    return (
+        round(math.degrees(roll), 4),
+        round(math.degrees(pitch), 4),
+        round(math.degrees(yaw), 4),
+    )
 
 
 def _collect_tracks(
@@ -260,7 +269,12 @@ def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
     for i in range(bone_count):
         name = _get_bone_name(i, bone_count)
         node_attributes.append(
-            FBXNodeAttribute(id=bone_node_attribute_ids[i], name=name, type="LimbNode", type_flags="Skeleton"),
+            FBXNodeAttribute(
+                id=bone_node_attribute_ids[i],
+                name=name,
+                type="LimbNode",
+                type_flags="Skeleton",
+            ),
         )
         translation = _position_to_fbx(*rest_pose_offsets[i]) if i < len(rest_pose_offsets) else (0.0, 0.0, 0.0)
         models.append(
@@ -284,7 +298,12 @@ def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
         for i, item in enumerate(iff.atta.content):
             name = "attach_" + item.name.rstrip(b"\x00").decode("ascii", errors="replace")
             node_attributes.append(
-                FBXNodeAttribute(id=attachment_node_attribute_ids[i], name=name, type="Null", type_flags="Null"),
+                FBXNodeAttribute(
+                    id=attachment_node_attribute_ids[i],
+                    name=name,
+                    type="Null",
+                    type_flags="Null",
+                ),
             )
             translation_x, translation_y, translation_z = _position_to_fbx(
                 item.position_x, item.position_y, item.position_z
@@ -340,8 +359,8 @@ def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
             animation_connections.append(FBXConnection(source=curve_node_id, destination=animation_layer_id))
             animation_connections.append(
                 FBXConnection(
-                    src=curve_node_id,
-                    dst=bone_ids[bone_index],
+                    source=curve_node_id,
+                    destination=bone_ids[bone_index],
                     property="Lcl Translation",
                 )
             )
@@ -355,7 +374,11 @@ def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     )
                 )
                 animation_connections.append(
-                    FBXConnection(source=curve_id, destination=curve_node_id, property=f"d|{label}")
+                    FBXConnection(
+                        source=curve_id,
+                        destination=curve_node_id,
+                        property=f"d|{label}",
+                    )
                 )
 
         for bone_index in sorted(rotation_tracks):
@@ -370,8 +393,8 @@ def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
             animation_connections.append(FBXConnection(source=curve_node_id, destination=animation_layer_id))
             animation_connections.append(
                 FBXConnection(
-                    src=curve_node_id,
-                    dst=bone_ids[bone_index],
+                    source=curve_node_id,
+                    destination=bone_ids[bone_index],
                     property="Lcl Rotation",
                 )
             )
@@ -385,7 +408,11 @@ def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
                     )
                 )
                 animation_connections.append(
-                    FBXConnection(source=curve_id, destination=curve_node_id, property=f"d|{label}")
+                    FBXConnection(
+                        source=curve_id,
+                        destination=curve_node_id,
+                        property=f"d|{label}",
+                    )
                 )
 
     # Connections

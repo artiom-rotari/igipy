@@ -20,6 +20,7 @@ index_table = [
 ]
 
 
+# noinspection DuplicatedCode
 def encode(data: bytes, channels: int = 1) -> bytes:  # noqa: PLR0915, PLR0912, C901
     """
     Encodes raw 16-bit PCM audio into a custom 4-bit ADPCM format,
@@ -126,6 +127,7 @@ def encode(data: bytes, channels: int = 1) -> bytes:  # noqa: PLR0915, PLR0912, 
     return bytes(output_bytes)
 
 
+# noinspection DuplicatedCode
 def decode(data: bytes, channels: int = 1) -> bytes:  # noqa: PLR0912, C901
     """
     Decodes data from a custom 4-bit ADPCM format back into raw 16-bit PCM audio,

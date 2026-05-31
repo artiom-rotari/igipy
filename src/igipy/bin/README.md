@@ -5,26 +5,26 @@ Together with `gconvapi.dll` and `vqdll.dll`, it converts common files (e.g., WA
 
 ## Package contents
 
-```
+"`
 gconv.exe
 gconvapi.dll
 vqdll.dll
-```
+"`
 
 ## Usage
 
 `gconv.exe` executes a `.qsc` script containing one or more conversion commands.
 
-```qsc
+"`qsc
 // example_01.qsc
 ConvertSoundFile("m1_ambience_regular.wav", "m1_ambience_encoded.wav", 0);
-```
+"`
 
 Run the tool from the folder that holds the three binaries and your input file:
 
-```powershell
+"`powershell
 PS> .\gconv.exe example_01.qsc
-```
+"`
 
 ### Result
 

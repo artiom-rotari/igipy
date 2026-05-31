@@ -3,23 +3,14 @@ from pydantic import ValidationError
 
 from . import __version__
 from .config import Config
-from .core.tools.dev import dev_app
-from .core.tools.gconv import gconv
-from .core.tools.printable import printable
+from .core.app import core_app
 from .igi1.app import igi1_app
 from .igi2.app import igi2_app
 
 app = typer.Typer(add_completion=False)
 app.add_typer(igi1_app, name="igi1", short_help="Convertors for IGI 1 game")
 app.add_typer(igi2_app, name="igi2", short_help="Convertors for IGI 2 game")
-app.add_typer(dev_app, name="dev", short_help="Developer utilities")
-app.command(name="printable", short_help="Search printable series in binary files", hidden=True)(printable)
-app.command(
-    name="gconv",
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
-    short_help="Run gconv.exe",
-    hidden=True,
-)(gconv)
+app.add_typer(core_app, name="core", short_help="Core shared utilities")
 
 
 @app.callback(invoke_without_command=True)

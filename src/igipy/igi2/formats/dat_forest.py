@@ -31,7 +31,7 @@ class ForestRecord(StructModel):
 
 
 class DATForest(FileModel):
-    """Forest DAT — vegetation instance placement data."""
+    """DAT Forest — vegetation instance placement data."""
 
     header_value: NonNegativeInt
     version: str
