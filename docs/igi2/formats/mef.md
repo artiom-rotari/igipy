@@ -330,8 +330,12 @@ Size = `bone_count + 1 + bone_count * 12`. Three skeleton sizes are observed:
 | 47    | 612 bytes | 1     |
 | 28    | 364 bytes | 2     |
 
-The 31-bone skeleton is the standard humanoid skeleton. Bone type flags match IFF animation types (0 = end effector, 1 =
-rotation, 2 = full transform, 3 = position + rotation).
+The 31-bone skeleton is the standard humanoid skeleton (237 files). The single 47-bone model is
+`common/models/005_01_1.mef` — the **first-person hands viewmodel** (prefix `005` = Player/Misc; see
+[model naming](../model_naming.md)); its skeleton is the detailed first-person hand rig (both arms,
+both hands, and per-finger bones — see the 47-bone names table below). The 28-bone skeleton covers
+the remaining 2 files. Bone type flags match IFF animation types (0 = end effector, 1 = rotation,
+2 = full transform, 3 = position + rotation).
 
 ## MANB — Bone Names (Type 1 Only)
 
@@ -363,6 +367,41 @@ Total size = bone_count * 16
 | 15    | head            |       |                    |
 
 Names are truncated to 16 characters (e.g., "upper left finge" for "upper left finger").
+
+47-bone skeleton names (the first-person hand skeleton — the only 47-bone model is
+`common/models/005_01_1.mef`). Names are shown exactly as stored (16-char truncated). Bones 37–46
+are unused `noneNN` placeholder slots. These names match `_BONE_NAMES_47` in
+`igi2/services/iff_to_fbx.py`, which labels the bones of the 47-bone first-person weapon animations:
+
+| Index | Name             | Index | Name             |
+|-------|------------------|-------|------------------|
+| 0     | center shoulders | 24    | lower right midd |
+| 1     | upper left arm   | 25    | lower right ring |
+| 2     | upper right arm  | 26    | lower right thum |
+| 3     | lower left arm   | 27    | left forefinger  |
+| 4     | lower right arm  | 28    | left little fing |
+| 5     | left hand        | 29    | left middle fing |
+| 6     | right hand       | 30    | left ring finger |
+| 7     | upper left foref | 31    | left thumb tip   |
+| 8     | upper left littl | 32    | right forefinger |
+| 9     | upper left middl | 33    | right little fin |
+| 10    | upper left ring  | 34    | right middle fin |
+| 11    | upper left thumb | 35    | right ring finge |
+| 12    | upper right fore | 36    | right thumb tip  |
+| 13    | upper right litt | 37    | none09           |
+| 14    | upper right midd | 38    | none07           |
+| 15    | upper right ring | 39    | none06           |
+| 16    | upper right thum | 40    | none08           |
+| 17    | lower left foref | 41    | none10           |
+| 18    | lower left littl | 42    | none02           |
+| 19    | lower left middl | 43    | none05           |
+| 20    | lower left ring  | 44    | none03           |
+| 21    | lower left thumb | 45    | none04           |
+| 22    | lower right fore | 46    | none01           |
+| 23    | lower right litt |       |                  |
+
+The finger bones follow an upper → lower → tip chain per finger (forefinger, little, middle, ring,
+thumb) for both hands, rooted at `center shoulders` through the arms and hands.
 
 ## ATTA — Attachment Points
 

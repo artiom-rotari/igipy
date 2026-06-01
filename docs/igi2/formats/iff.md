@@ -458,9 +458,33 @@ skeleton.
 
 ## Timing
 
-Frame offsets in TNVE entries use the same time unit as `DHNA.duration`. Specific frame rate and time-unit-to-seconds
-conversion factor are not yet determined -- this requires cross-referencing with the game engine's animation playback
-system or QSC script timing values.
+Frame offsets in TNVE entries use the same time unit as `DHNA.duration`. Empirically, every observed duration is a
+multiple of **160 ticks**, which corresponds to **one frame at 30 fps** -- i.e. **4,800 ticks per second**. Dividing a
+tick count by 4,800 gives seconds, producing natural clip lengths across the corpus (single weapon shot ~0.5 s, run
+cycle ~1.0 s, walk cycle ~2.0 s, rifle reload ~3.4 s, C4 plant ~5.0 s). The exporter uses this factor
+(`ANIMATION_TICKS_PER_SECOND = 4800` in `iff_to_fbx.py`) to set the real FBX timeline length instead of normalizing
+every clip to 1 second.
+
+The frame rate is the single empirically-fitted value; if in-game playback is uniformly ~2x off, the engine runs at
+60 fps and the factor is 9,600. Relative clip lengths are correct regardless of frame rate.
+
+## Playback Direction and the `fo=0` Ready Anchor (first-person clips)
+
+For 47-bone first-person weapon clips (`*_1st`), frame offset 0 holds a **single canonical "weapon ready" pose shared by
+every clip of that weapon**. This was verified by comparing bone 0 at `fo=0` across `fire_ak47_1st`, `reload_ak47_1st`,
+and `weaponraise_ak47_1st` -- all three share the same ready pose `(-0.88, -12.58, ~2.6)` with rotation `~(0, -26, 0)`.
+
+- **Symmetric clips** (`fire_*`, `reload_*`, `walk_*`, `run_*`) start and end at this ready pose, so playback direction
+  is not visually observable.
+- **`weaponraise_*` clips are stored one-way: ready (`fo=0`) -> lowered/away (last frame).** There is no separate
+  `lower`/`holster` clip. The engine plays `weaponraise` **in reverse** when selecting a weapon, so it finishes at the
+  ready pose. Played forward (as the IFF stores it, and as the exporter faithfully emits it) the weapon appears to
+  *lower*, not raise.
+
+The exporter does **not** reverse these clips -- it reads the binary as authored. To get a correct "raise" in a DCC tool
+or game engine, play the exported `weaponraise_*` clips backward (e.g. reverse the clip / set negative speed in the
+animation controller). This reverse-on-select behavior is a playback-layer decision in the original engine and is not
+encoded anywhere in the IFF binary.
 
 ## BEF Source Format
 
