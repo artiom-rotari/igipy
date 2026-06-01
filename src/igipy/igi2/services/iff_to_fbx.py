@@ -4,6 +4,31 @@ Produces a skeleton-only animation (no mesh geometry). The result can be
 imported into Blender, Maya, 3ds Max, or any FBX-compatible DCC tool.
 Bones are represented as LimbNode models; animation channels carry
 translation and rotation keyframes extracted from TNVE entries.
+
+Known data omissions (all measured against the full set of 1244 IGI2 .iff files;
+analysis scripts kept under .ignore/analyze_iff_loss*.py for re-verification):
+
+1. Rotation interpolation control quaternions. TNVERotation (0x04) carries
+   in_tangent/out_tangent fields that are unit quaternions and always equal each
+   other; they are spherical-cubic (SQUAD) control points, independent of the
+   keyframe orientation on 43.6% of keys. They are intentionally NOT exported:
+   FBX Lcl Rotation curves are Euler and cannot carry quaternion control points,
+   so rotation interpolates linearly between keys. Keyframe poses are exact; only
+   the in-between motion shape differs from the game (visible only on sparsely
+   keyed clips). A future best-effort upgrade would resample SQUAD into dense
+   Euler keys; deferred by decision.
+
+2. Trigger events. TNVETrigger (0x06) entries (footstep/effect/sound markers,
+   present in 25.9% of files, mostly on the foot bones) are dropped. They are
+   event markers, not pose data, so they do not affect the rendered animation;
+   they only matter for engine round-trip and have no standard FBX slot.
+
+3. Keyframes beyond the clip end. The single TNVESeparator (0xFF) sits at
+   frame_offset == DHNA.duration (the clip end, which is also the FBX time_stop),
+   and every keyframe after it has frame_offset > duration (loop-closure root
+   keys, or extended over-run frames). _collect_tracks stops at the separator: the
+   excluded keyframes lie entirely outside the playable window, so no in-clip
+   motion is lost.
 """
 
 import logging
@@ -44,9 +69,9 @@ SCALE = 100 / 4096
 
 # IGI2 animation time unit: TNVE frame offsets and DHNA.duration are fixed-point ticks of
 # 160 units per frame at 30 fps, i.e. 4800 ticks per second (every observed duration is a
-# multiple of 160). Dividing by this maps ticks to seconds so the exported FBX timeline has
+# multiple of 160). Dividing by these maps ticks to seconds, so the exported FBX timeline has
 # the animation's real length instead of being squeezed into a fixed 1 second. The frame
-# rate is the one empirically-fitted value; if in-engine playback is uniformly ~2x off, the
+# rate is the one empirically fitted value; if in-engine playback is uniformly ~2x off, the
 # game runs at 60 fps and this becomes 9600.
 ANIMATION_TICKS_PER_SECOND = 4800.0
 
@@ -248,8 +273,8 @@ def _unroll_euler(
 ) -> tuple[tuple[float, float, float], int]:
     """Shift Euler angles by whole turns to stay on the branch nearest the previous keyframe.
 
-    ``atan2``/``asin`` return angles in a fixed range, so an axis that crosses
-    the +/-180 degree boundary jumps by ~360 degrees and FBX's linear
+    "atan2"/"asin" return angles in a fixed range, so an axis that crosses
+    the +/-180-degree boundary jumps by ~360 degrees, and FBX's linear
     interpolation would sweep the bone the long way around. Adding or
     subtracting whole turns per axis removes that discontinuity without changing
     the orientation each keyframe represents. Returns the unrolled angles and
@@ -317,7 +342,7 @@ def _collect_tracks(
     Returns (translation_tracks, rotation_tracks) where each maps
     bone_index -> sorted list of (time_normalized, values). Rotation values are
     Euler angles (degrees) for FBX, made continuous across keyframes (hemisphere
-    sign alignment + Euler unrolling) so FBX's linear interpolation does not
+    sign alignment + Euler unrolling), so FBX's linear interpolation does not
     introduce spurious full-turn swings.
 
     TNVEFullTransform (0x07) and TNVEFullTransformTangent (0x01) entries are a
@@ -338,6 +363,10 @@ def _collect_tracks(
 
     for entry in iff.tnve.content:
         if isinstance(entry, TNVESeparator):
+            # The separator marks the clip end: its frame_offset == DHNA.duration, and every
+            # keyframe after it (verified across all 1244 files) has frame_offset > duration —
+            # loop-closure root keys or extended over-run frames that sit beyond the FBX
+            # time_stop. Stopping here drops only out-of-range keyframes, never in-clip motion.
             break
 
         # Real elapsed seconds for this keyframe (NOT normalized to a fixed 1-second clip).
@@ -347,6 +376,8 @@ def _collect_tracks(
             position = _position_to_fbx(entry.position_x, entry.position_y, entry.position_z)
             translation_tracks[entry.bone_index].append((time_seconds, position))
         elif isinstance(entry, TNVETrigger):
+            # Event marker (footstep/effect/sound), not pose data — no rendered effect and no
+            # standard FBX slot, so it is intentionally dropped. See module docstring, omission 2.
             pass
         elif isinstance(entry, TNVERotation):
             quaternion = _quaternion_to_fbx(
@@ -384,6 +415,7 @@ def _get_bone_name(bone_index: int, bone_count: int) -> str:
     return f"bone_{bone_index:03d}"
 
 
+# noinspection DuplicatedCode
 def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:  # noqa: C901, PLR0912, PLR0915
     target_path: Path | None = source_path.with_suffix(".fbx") if source_path is not None else None
     iff = IFF.model_validate_stream(source_io)
@@ -579,7 +611,7 @@ def iff_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
     # Animation connections
     connections.extend(animation_connections)
 
-    # Scale the FBX timeline to the clip's real length instead of a fixed 1 second so playback
+    # Scale the FBX timeline to the clip's real length instead of a fixed 1-second so playback
     # speed matches the game (long clips were previously squeezed into 1s and played too fast).
     animation_duration_seconds = iff.dhna.duration / ANIMATION_TICKS_PER_SECOND
     animation_time_stop = _seconds_to_fbx_time(animation_duration_seconds)
