@@ -23,6 +23,7 @@ from igipy.igi2.services.iff_to_fbx import iff_to_fbx
 from igipy.igi2.services.iff_to_qsc import iff_to_qsc
 from igipy.igi2.services.mef_to_fbx import mef_to_fbx
 from igipy.igi2.services.mef_to_qsc import mef_to_qsc
+from igipy.igi2.services.mtp_to_json import mtp_to_json
 from igipy.igi2.services.olm_to_tga import olm_to_tga
 from igipy.igi2.services.syn_to_json import syn_to_json
 from igipy.igi2.services.thm_to_tga import thm_to_tga
@@ -119,6 +120,9 @@ def igi2_convert_all(dry: bool = False) -> None:
 
     typer.secho("Converting graphcover*.dat to .json...", fg="green")
     igi2_convert_dat_graphcover_to_json(dry=dry)
+
+    typer.secho("Converting .mtp to .json material/texture table...", fg="green")
+    igi2_convert_mtp_to_json(dry=dry)
 
     typer.secho("Converting .olm to .tga object lightmap...", fg="green")
     igi2_convert_olm_to_tga(dry=dry)
@@ -300,6 +304,14 @@ def igi2_convert_mef_to_fbx(dry: bool = False) -> None:
 )
 def igi2_convert_mef_to_qsc(dry: bool = False) -> None:
     _run_convert(converter=mef_to_qsc, patterns=["*.mef"], dry=dry)
+
+
+@igi2_app.command(
+    name="convert-mtp-to-json",
+    short_help="Convert .mtp material/texture tables from collect source to .json in convert destination",
+)
+def igi2_convert_mtp_to_json(dry: bool = False) -> None:
+    _run_convert(converter=mtp_to_json, patterns=["*.mtp"], dry=dry)
 
 
 @igi2_app.command(

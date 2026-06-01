@@ -2,9 +2,9 @@ from io import BytesIO
 from struct import unpack_from
 from typing import ClassVar, Self
 
-from pydantic import NonNegativeInt
+from pydantic import BaseModel, NonNegativeInt
 
-from igipy.igi2.formats.form import FORM, FORMChunk, FORMChunkHeader, FORMRawChunk
+from igipy.igi2.formats.form import FORM, FORMChunk, FORMChunkHeader
 
 
 def _parse_string_table(content: bytes) -> tuple[int, list[str]]:
@@ -69,10 +69,45 @@ class VNAMChunk(FORMChunk):
         return cls(header=header, count=count, offsets=offsets, names=names)
 
 
-class INSTChunk(FORMRawChunk):
+class INSTRecord(BaseModel):
+    """One model's texture assignment: a model index and its texture indices.
+
+    ``model_index`` indexes the ``MODS`` model-name table; each entry of
+    ``texture_indices`` indexes the ``TEXF`` texture-name table. Together they encode the same
+    per-model texture list as the machine-generated text ``.dat`` sibling, in material order.
+    """
+
+    model_index: NonNegativeInt
+    texture_indices: list[NonNegativeInt]
+
+
+class INSTChunk(FORMChunk):
+    """Per-model texture-assignment records.
+
+    Flat record stream: ``[model_index uint32, texture_count uint32, texture_index uint32 x count]``
+    repeated until the chunk is exhausted (verified to consume the chunk exactly, with one record
+    per ``MODS`` entry). Resolve readable names via ``MTP.model_texture_table``.
+    """
+
+    records: list[INSTRecord]
+
     @classmethod
     def model_validate_content(cls, header: FORMChunkHeader, content: bytes) -> Self:
-        return cls(header=header, content=content)
+        records: list[INSTRecord] = []
+        offset = 0
+
+        while offset + 8 <= len(content):
+            model_index, texture_count = unpack_from("<II", content, offset)
+            offset += 8
+
+            if offset + 4 * texture_count > len(content):
+                break
+
+            texture_indices = list(unpack_from(f"<{texture_count}I", content, offset)) if texture_count else []
+            offset += 4 * texture_count
+            records.append(INSTRecord(model_index=model_index, texture_indices=texture_indices))
+
+        return cls(header=header, records=records)
 
 
 class TEXFChunk(FORMChunk):
@@ -166,3 +201,27 @@ class MTP(FORM):
             values[field_name] = chunk
 
         return cls(header=header, **values)
+
+    def model_texture_table(self) -> dict[str, list[str]]:
+        """Build the ``{model_name: [texture_name, ...]}`` table from the binary chunks.
+
+        Joins the ``INST`` records against the ``MODS`` and ``TEXF`` name tables. This is the
+        binary equivalent of the machine-generated text ``.dat`` table; texture names are returned
+        as stored (pixel-format suffixes like ``_argb8888`` are kept). Records or indices that fall
+        outside the name tables are skipped rather than raising, so partially-truncated files still
+        yield whatever resolved cleanly.
+        """
+        table: dict[str, list[str]] = {}
+
+        for record in self.inst.records:
+            if record.model_index >= len(self.mods.names):
+                continue
+
+            model_name = self.mods.names[record.model_index]
+            table[model_name] = [
+                self.texf.names[texture_index]
+                for texture_index in record.texture_indices
+                if texture_index < len(self.texf.names)
+            ]
+
+        return table

@@ -18,11 +18,14 @@ is what binds a model's render groups to textures, so it is the key input for te
 
 ## Why the `.dat` is the practical source
 
-The exporter reads the **`.dat`** rather than the binary `.mtp` `INST` chunk. Both hold the same
-per-model texture lists, but the `.mtp` `INST` packing is a flat record stream
-(`[model_index, texture_count, texture_index × count]` indexing the `TEXF` name table) that is
-error-prone to walk — a single misread record desynchronises the rest. The `.dat` is line-oriented
-text and trivially parsed.
+The **textured MEF→FBX exporter** reads the **`.dat`** rather than the binary `.mtp` `INST` chunk.
+Both hold the same per-model texture lists; the `.dat` is line-oriented text and trivially parsed,
+so it stays the canonical input for `mef_texture_resolver.py`.
+
+The binary `INST` chunk is nonetheless **fully decoded** by `igi2/formats/mtp.py` (see
+[Binary `.mtp` chunks](#binary-mtp-chunks-igi2formatsmtppy) below) and is the source for the
+`convert-mtp-to-json` export. The two tables are equivalent for 99 % of models — see
+[INST ↔ `.dat` equivalence](#inst--dat-equivalence).
 
 ## `.dat` format
 
@@ -75,7 +78,7 @@ The `.mtp` is a FORM container with these chunks:
 |--------------------------------|------------------------------------------------------------------------------------|
 | `MODS`                         | model-name string table (the table's model order)                                  |
 | `TEXF`                         | texture-name string table                                                          |
-| `INST`                         | per-model records `[model_index, texture_count, texture_index × count]` (→ `TEXF`) |
+| `INST`                         | per-model records `[model_index, texture_count, texture_index x count]` (→ `TEXF`) |
 | `GTT `                         | texture-table descriptor — `(index, -1)` pairs parallel to `TEXF` (not a map)      |
 | `VNAM`                         | variant-name string table with offsets                                             |
 | `BANM`, `SNDS`, `SVOL`, `PALF` | name/sound/palette tables (not used for texture export)                            |
@@ -83,7 +86,64 @@ The `.mtp` is a FORM container with these chunks:
 `INST` is the binary equivalent of the `.dat` table; `GTT ` and `material_flags` are **not** needed
 for diffuse texturing.
 
+### `INST` record layout
+
+`INST` is a flat little-endian record stream, one record per model in `MODS` order, consuming the
+chunk exactly:
+
+```
+Offset  Size  Type          Field
+0       4     uint32        model_index          -> MODS.names[model_index]
+4       4     uint32        texture_count
+8       4×N   uint32[N]     texture_indices      -> TEXF.names[i] (N = texture_count, material order)
+```
+
+`MTP.model_texture_table()` joins these against `MODS`/`TEXF` and returns
+`{model_name: [texture_name, ...]}`. Texture names are returned **as stored** — a few carry a
+trailing-space padding (e.g. `412_06_1_argb8888 `) that the text `.dat` strips.
+
+### INST ↔ `.dat` equivalence
+
+The binary `INST` table and the text `.dat` table were compared across all 32 IGI 2 `.mtp`/`.dat`
+pairs (7,528 model entries):
+
+| Result                          | Models | Share  |
+|---------------------------------|--------|--------|
+| Identical                       | 7,415  | 98.5 % |
+| Trailing-whitespace difference  | 41     | 0.5 %  |
+| **Equivalent (above combined)** | 7,456  | 99.0 % |
+| Real difference (variant skin)  | 72     | 1.0 %  |
+
+The 72 real differences are **variant skins** — the binary and text tables captured different
+variant snapshots of the same model (e.g. `jones_2` → `[jones_jungle, jones-jungleface]` in `INST`
+vs `[jones_blue, jones_1]` in `.dat`; `resg_*` → winter vs default; `005_01_1` arms variant). The
+`.mtp` `VNAM` chunk enumerates these variants. This is a genuine data difference, not a parser
+artifact, and does not affect FBX export (which resolves through the `.dat`).
+
+## JSON export (`convert-mtp-to-json`)
+
+`igi2 convert-mtp-to-json` parses every `.mtp` in the collect source and writes a `.json` sibling in
+the convert destination (also part of `convert-all`). The output is a purpose-shaped document built
+from the decoded chunks — not a raw model dump:
+
+```json
+{
+  "model_count": 271,
+  "texture_count": 214,
+  "variants": ["good_sc_1", "good_sc_2", "..."],
+  "model_textures": {
+    "good_sc_1": ["ch_gsci_01", "ch_gsci_00", "ch_gci_03_argb8888", "bci_02_argb8888"],
+    "...": ["..."]
+  }
+}
+```
+
+`model_textures` is `MTP.model_texture_table()` (the `INST`/`MODS`/`TEXF` join); `variants` is the
+`VNAM` table. Texture names are kept exactly as stored, so the JSON is a faithful reference for the
+binary table.
+
 ## Used by
 
+- `igi2/services/mtp_to_json.py` (`convert-mtp-to-json`) — exports the binary `.mtp` table to JSON.
 - `igi2/services/mef_texture_resolver.py` — parses the `.dat`, resolves each render group's texture.
 - `igi2/services/mef_to_fbx.py` (`convert-mef-to-fbx`) — exports textured FBX using the resolver.
