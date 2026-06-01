@@ -13,6 +13,7 @@ def _parse_string_table(content: bytes) -> tuple[int, list[str]]:
     return count, strings
 
 
+# noinspection DuplicatedCode
 class BANMChunk(FORMChunk):
     count: NonNegativeInt
     names: list[str]
@@ -33,6 +34,7 @@ class SNDSChunk(FORMChunk):
         return cls(header=header, count=count, names=names)
 
 
+# noinspection DuplicatedCode
 class SVOLChunk(FORMChunk):
     count: NonNegativeInt
     names: list[str]

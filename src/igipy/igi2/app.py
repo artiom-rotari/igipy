@@ -49,6 +49,7 @@ def _run_convert(
     )
 
 
+# noinspection DuplicatedCode
 @igi2_app.callback(invoke_without_command=True)
 def igi2_callback(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
@@ -128,6 +129,7 @@ def igi2_convert_all(dry: bool = False) -> None:
     typer.secho("All conversions complete.", fg="green", bold=True)
 
 
+# noinspection DuplicatedCode
 @igi2_app.command(
     name="extensions-of-game",
     short_help="Print file counts by extension from the game install directory",
@@ -283,7 +285,7 @@ def igi2_convert_mef_to_fbx(dry: bool = False) -> None:
     """Export .mef models to .fbx with per-render-group diffuse textures.
 
     Textures are resolved through each level's .mtp and referenced as sibling .tga files,
-    so run ``convert-tex-to-tga`` first to produce those images. Models without a usable
+    so run "convert-tex-to-tga" first to produce those images. Models without a usable
     .mtp entry still export untextured.
     """
     config = Config.model_validate_file()

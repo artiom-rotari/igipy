@@ -21,11 +21,11 @@ def compression_for(name: str) -> int:
 
 
 def iter_source_entries(source_path: Path, is_zip: bool) -> Generator[tuple[PurePosixPath, BytesIO]]:
-    """Yield ``(member_name, stream)`` pairs from a zip archive or a directory tree.
+    """Yield "(member_name, stream)" pairs from a zip archive or a directory tree.
 
-    The duality is driven by ``is_zip``: when True the source is read as a zip archive, otherwise
-    ``source_path`` is walked recursively and each file becomes one entry whose name is the path
-    relative to ``source_path``.
+    The duality is driven by "is_zip": when True the source is read as a zip archive, otherwise
+    "source_path" is walked recursively, and each file becomes one entry whose name is the path
+    relative to "source_path".
     """
     if is_zip:
         with ZipFile(source_path, "r") as zip_file:
@@ -55,7 +55,7 @@ def existing_destination_names(destination_path: Path, is_zip: bool) -> set[str]
 
 
 class ArchiveWriter:
-    """Write ``(name, data)`` entries to a zip archive or a directory tree, driven by ``is_zip``.
+    """Write "(name, data)" entries to a zip archive or a directory tree, driven by "is_zip".
 
     In dry mode no bytes are written; the writer still behaves like a sink so callers can run their
     full reporting path without side effects. Use as a context manager so the underlying zip handle

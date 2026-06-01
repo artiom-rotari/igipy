@@ -1,9 +1,9 @@
 """Resolve a MEF model's per-render-group diffuse textures through the level material table.
 
 The MEF binary does not store texture filenames. Texture binding is external and
-**level-scoped**: every level / location / ``common`` directory holds a material/texture
-table that exists in two equivalent forms — the binary ``<level>.mtp`` and a machine-generated
-text sibling ``<level>.dat``. The ``.dat`` is a plain-text table::
+**level-scoped**: every level / location / "common" directory holds a material/texture
+table that exists in two equivalent forms — the binary "<level>.mtp" and a machine-generated
+text sibling "<level>.dat". The ".dat" is a plain-text table::
 
     398                       <- model count
     <model_name>
@@ -68,17 +68,17 @@ def _strip_pixel_format_suffix(texture_name: str) -> str:
 def _level_directory(model_source_path: PurePosixPath) -> PurePosixPath:
     """Return the level directory that governs a model.
 
-    Models live in ``<level>/models/<name>.mef``; the material table and ``textures`` directory
-    are siblings under ``<level>``. For ``common/models/x.mef`` this is ``common``.
+    Models live in "<level>/models/<name>.mef"; the material table and "textures" directory
+    are siblings under "<level>". For "common/models/x.mef" this is "common".
     """
     return model_source_path.parent.parent
 
 
 def _find_material_table_path(collect_path: Path, level_directory: PurePosixPath) -> Path | None:
-    """Locate the level's material/texture ``.dat`` table (the sibling of its ``.mtp``).
+    """Locate the level's material/texture ".dat" table (the sibling of its ".mtp").
 
-    The level directory also holds unrelated ``.dat`` files (forest, graph, graphcover), so the
-    table is identified as the ``.dat`` paired with the level's ``.mtp`` (same stem).
+    The level directory also holds unrelated ".dat" files (forest, graph, graphcover), so the
+    table is identified as the ".dat" paired with the level's ".mtp" (same stem).
     """
     level_on_disk = collect_path / level_directory.as_posix()
     if not level_on_disk.is_dir():
@@ -92,7 +92,7 @@ def _find_material_table_path(collect_path: Path, level_directory: PurePosixPath
 
 @lru_cache(maxsize=64)
 def _parse_material_table(dat_path_text: str) -> dict[str, tuple[str, ...]]:
-    """Parse a machine-generated material ``.dat`` into ``{model_name: (texture_name, ...)}``.
+    """Parse a machine-generated material ".dat" into "{model_name: (texture_name, ...)}".
 
     Cached by path because one table serves every model in a level (thousands of lookups).
     """
@@ -124,11 +124,11 @@ def _locate_texture(
     level_directory: PurePosixPath,
     texture_name: str,
 ) -> tuple[PurePosixPath, str] | None:
-    """Locate the texture's ``.tex`` on disk; return its (directory, on-disk stem) or None.
+    """Locate the texture's ".tex" on disk; return its (directory, on-disk stem) or None.
 
-    The level-local ``textures`` directory is searched first, then the shared ``common`` one.
+    The level-local "textures" directory is searched first, then the shared "common" one.
     The table name is probed as-is and suffix-stripped; the matched stem is returned so the
-    converted ``.tga`` path mirrors the actual filename ``tex_to_tga`` produces.
+    converted ".tga" path mirrors the actual filename "tex_to_tga" produces.
     """
     stripped = _strip_pixel_format_suffix(texture_name)
     level_textures = level_directory / "textures"
@@ -141,7 +141,7 @@ def _locate_texture(
 
 
 def _relative_output_path(model_source_path: PurePosixPath, texture_directory: PurePosixPath, texture_stem: str) -> str:
-    """Path to the converted ``.tga`` relative to the model's FBX file (posix, with ``..``)."""
+    """Path to the converted ".tga" relative to the model's FBX file (posix, with "..")."""
     from_directory_parts = model_source_path.parent.parts
     to_path_parts = (*texture_directory.parts, f"{texture_stem}{TEXTURE_OUTPUT_SUFFIX}")
 
@@ -163,8 +163,8 @@ def resolve_render_group_textures(
 ) -> list[RenderGroupTexture | None]:
     """Resolve one diffuse texture per render group, in render-group order.
 
-    Returns a list aligned with ``mef.render_groups``; each entry is a
-    :class:`RenderGroupTexture` or ``None`` when no texture could be resolved for that group
+    Returns a list aligned with "mef.render_groups"; each entry is a
+    :class:`RenderGroupTexture` or "None" when no texture could be resolved for that group
     (the caller should then emit an untextured placeholder material for it).
     """
     render_groups = mef.render_groups

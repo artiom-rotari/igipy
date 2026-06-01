@@ -6,10 +6,10 @@ in particular then renders inverted / see-through faces. This computes
 area-weighted smooth normals from the triangle mesh, in the SAME coordinate
 space as the supplied positions (so the result is used as-is, no extra swizzle).
 
-Winding: IGI2 triangle winding is opposite to the ``(b - a) x (c - a)``
+Winding: IGI2 triangle winding is opposite to the "(b - a) x (c - a)"
 convention — verified across type-0 models that DO carry authored normals
 (geometric vs authored agreed for only 3/809 faces, opposed for 806). The face
-normal therefore uses ``(c - a) x (b - a)`` so generated normals match the
+normal therefore uses "(c - a) x (b - a)" so generated normals match the
 authored orientation.
 """
 

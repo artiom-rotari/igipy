@@ -175,11 +175,20 @@ Offset  Size  Type     Field
 ```
 
 Validated as 28 bytes across all 5,433 type-3 files. **Decoded** against the IGI2 Map Editor's
-text-MEF sources (see *Provenance & Methodology*): the diffuse UV matches the text `UV()` command
-exactly across **128,869 / 128,869 type-3 vertices (100%)** in 174 paired models, with V stored
-already flipped (`1 - source_v`). The parser exposes `uv_u`/`diffuse_v`/`lightmap_u`/`lightmap_v`
-plus a `uv_v` property (`1 - diffuse_v`) so all XTRV variants share the same `uv_u`/`uv_v`
-semantics and the `(uv_u, 1.0 - uv_v)` export convention applies uniformly.
+text-MEF sources (see *Provenance & Methodology*): `diffuse_v` matches `1 - source_v` from the text
+`UV()` command across **128,869 / 128,869 type-3 vertices (100%)** in 174 paired models — i.e. the
+diffuse V is stored pre-flipped, the **same convention as the type-0/1 `uv_v` field** (which also
+stores `1 - source_v`). The parser exposes `uv_u`/`diffuse_v`/`lightmap_u`/`lightmap_v` plus a
+`uv_v` property that returns `diffuse_v` **unchanged**, so every XTRV variant shares one
+`uv_u`/`uv_v` meaning and the FBX exporter's `(uv_u, 1.0 - uv_v)` convention recovers the artist's
+source V uniformly across all model types.
+
+> **Orientation fix (Unity-verified).** An earlier `uv_v` property returned `1 - diffuse_v`, which
+> double-flipped **only** type-3 (the exporter's `1.0 - uv_v` then re-flipped it back to
+> `1 - source_v`), so type-3 diffuse textures exported upside-down — visible on oriented textures
+> like `201_01_1` and the parachute canopies, while tiling textures hid it. Returning `diffuse_v`
+> verbatim aligns type-3 with type 0/1. The TGA pipeline (`bottom_to_top` image-descriptor flag) is
+> correct and intentionally unchanged — the same textures already render upright on type-0/1 models.
 
 ## ECAF — Render Faces
 
@@ -254,6 +263,27 @@ equal the renderable-material face counts in id order). The compiler may still s
 (`631_04_2`: same total faces, different partition); `group_index` indexing handles splits because
 multiple groups can share one slot. This mapping drives the textured FBX export
 (`convert-mef-to-fbx`).
+
+**Material transparency (FBX export).** Each render group's diffuse texture is classified by its
+actual alpha content (not name), because IGI2 cutout textures are often 16-bit ARGB1555 with no
+`_argb*` name suffix:
+
+| Source texture                            | Classification | FBX export                                                        |
+|-------------------------------------------|----------------|-------------------------------------------------------------------|
+| Opaque (no alpha / all-opaque alpha)      | opaque         | diffuse only (unchanged)                                          |
+| ARGB1555 with any 0-alpha texel           | alpha-test     | transparent material, two-sided                                  |
+| ARGB8888 with only `{0,255}` alpha        | alpha-test     | transparent material, two-sided                                  |
+| ARGB8888 with intermediate alpha (glass)  | alpha-blend    | transparent material, two-sided                                  |
+
+A transparent group emits `TransparentColor` + `TransparencyFactor` on the phong material and sets
+its texture's `Texture_Alpha_Source: "Alpha"`, so the diffuse texture's own alpha drives per-texel
+opacity. Any transparent group disables backface culling for the whole mesh (FBX `Culling` is
+per-mesh), since glass/fences are thin surfaces seen from both sides. FBX has no alpha-test vs
+alpha-blend discriminator, so the final cutout-vs-blend render mode is chosen at Unity import time.
+`DNER.material_flags` was evaluated as a transparency signal and **rejected**: it exists only on
+type-0/1 groups (most transparent geometry is type-3 buildings, which have none) and even there it
+correlates only weakly. The classifier lives in `igi2/services/mef_texture_resolver.py`
+(`classify_texture_transparency` / `TextureTransparency`).
 
 ### Offset Rule
 
@@ -763,7 +793,15 @@ correlation** using the official IGI2 Map Editor (see *Provenance & Methodology*
   position + diffuse UV (offset 12 = U, offset 16 = `1 - source_v`) + lightmap UV (offsets 20/24),
   with **no per-vertex normal**. The diffuse UV matches the text `UV()` command exactly across
   128,869 / 128,869 type-3 vertices (174 models). This unblocks textured export for the 5,433
-  type-3 files (71% of all MEF). See the XTRV Type-3 section.
+  type-3 files (71% of all MEF). The exporter exposes `diffuse_v` verbatim through the `uv_v`
+  property so type-3 shares the type-0/1 `(uv_u, 1.0 - uv_v)` orientation (an earlier
+  `1 - diffuse_v` property exported type-3 textures upside-down; fixed and Unity-verified). See the
+  XTRV Type-3 section.
+
+- **Material transparency (glass / fences) in FBX**: ✅ SOLVED — driven by the diffuse texture's
+  actual alpha content (ARGB1555 cutout → alpha-test; ARGB8888 with smooth alpha → alpha-blend),
+  exported as a transparent, two-sided phong material using the texture's alpha. `DNER.material_flags`
+  was decoded but rejected as the signal (type-3 buildings carry none). See the DNER Type-3 section.
 
 - **Material-to-texture mapping in binary**: ✅ PARTIALLY SOLVED *(Map Editor)* — each DNER render
   group corresponds to one renderable (`DiffuseTMap`-bearing) material, in source material-id order

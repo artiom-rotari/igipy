@@ -126,8 +126,8 @@ def _compute_world_transforms(
 ) -> list[list[float]]:
     """Compute each bone's 4x4 row-major world transform.
 
-    ``rest_offsets`` are ABSOLUTE model-space bone positions (the accumulated REIH offsets
-    from ``_accumulate_bone_offsets``), so they are used directly as the translation of a
+    "rest_offsets" are ABSOLUTE model-space bone positions (the accumulated REIH offsets
+    from "_accumulate_bone_offsets"), so they are used directly as the translation of a
     translation-only world transform (REIH carries no per-bone rotation).
     """
     world_transforms: list[list[float]] = []
@@ -326,12 +326,12 @@ def _extract_skeletal(
     list[tuple[float, float, float]] | None,
     list[tuple[float, float]] | None,
 ]:
-    """Extract positions, faces, normals, uvs for skeletal model (type 1).
+    """Extract positions, faces, normals, uvs for a skeletal model (type 1).
 
     Type-1 vertices are stored in BONE-LOCAL space — each position is relative to the
-    frame of its own ``bone_index``. To place them in model space for the bind pose, add
-    the bone's absolute offset (``accumulated_bone_offsets``, summed down the REIH
-    hierarchy). Without this every limb stays at its bone-local origin and the whole mesh
+    frame of its own "bone_index". To place them in the model space for the bind pose, add
+    the bone's absolute offset ("accumulated_bone_offsets", summed down the REIH
+    hierarchy). Without this every limb stays at its bone-local origin, and the whole mesh
     collapses onto the hip/origin (the "all parts inside the chest" symptom). Bone frames
     are translation-only here, so the per-vertex normals are unaffected and stay as stored.
     When the skeleton is absent the local positions are emitted unchanged.
@@ -368,12 +368,12 @@ def _extract_building(
     list[tuple[float, float, float]],
     list[tuple[float, float]] | None,
 ]:
-    """Extract positions, faces, and diffuse UVs for building model (type 3).
+    """Extract positions, faces, and diffuse UVs for a building model (type 3).
 
-    Type-3 vertices carry a diffuse UV set (decoded from the editor's text-MEF sources)
-    but no per-vertex normal — lighting is baked into the lightmap — so normals stay None.
-    ``v.uv_v`` reconstructs the raw source V from the pre-flipped stored value, so the same
-    ``(uv_u, 1.0 - uv_v)`` convention as type 0/1 applies.
+    Type-3 vertices carry a diffuse UV set but no per-vertex normal — lighting is baked into
+    the lightmap — so normals stay None. "v.uv_v" exposes the diffuse V in the same
+    convention as type 0/1, so the shared "(uv_u, 1.0 - uv_v)" flip applies uniformly and
+    keeps type-3 texture orientation aligned with type 0/1.
     """
     vertices = mef.render_vertices
     positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
@@ -404,6 +404,7 @@ def _extract_sems(
 # ---------------------------------------------------------------------------
 
 
+# noinspection DuplicatedCode,PyUnusedLocal
 def mef_to_fbx(  # noqa: C901, PLR0912, PLR0915
     source_io: BytesIO,
     source_path: Path | None = None,
@@ -411,9 +412,9 @@ def mef_to_fbx(  # noqa: C901, PLR0912, PLR0915
 ) -> tuple[BytesIO, Path | None]:
     """Export a MEF model to FBX.
 
-    When ``collect_path`` (the collect-source root) and ``source_path`` are both given, each
+    When "collect_path" (the collect-source root) and "source_path" are both given, each
     render group is bound to its diffuse texture resolved through the level MTP (see
-    ``mef_texture_resolver``). Without them the mesh exports untextured (one placeholder
+    "mef_texture_resolver"). Without them the mesh exports untextured (one placeholder
     material), preserving the original behavior and backward compatibility.
     """
     target_path: Path | None = source_path.with_suffix(".fbx") if source_path is not None else None

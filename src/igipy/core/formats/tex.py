@@ -85,6 +85,7 @@ class TEX02(BaseModel):
         return stream, ".tex"
 
 
+# noinspection DuplicatedCode
 class TEX07(BaseModel):
     header: "TEX07Header"
     item_headers: list["TEX07ItemHeader"]
@@ -203,6 +204,7 @@ class TEX07(BaseModel):
         return full_image
 
 
+# noinspection DuplicatedCode
 class TEX09(TEX07):
     header: "TEX09Header"
     item_headers: list["TEX09ItemHeader"]

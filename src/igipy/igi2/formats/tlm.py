@@ -26,6 +26,7 @@ class TLMHeader(StructModel):
     height: NonNegativeInt
 
 
+# noinspection DuplicatedCode
 class TLM(FileModel):
     """Terrain Light Map — RGBA lightmap."""
 

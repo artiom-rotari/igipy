@@ -41,6 +41,7 @@ class TMMHeader(StructModel):
     height: NonNegativeInt
 
 
+# noinspection DuplicatedCode
 class TMM(FileModel):
     """Terrain Material Map — uint8 material indices."""
 

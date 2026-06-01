@@ -111,6 +111,7 @@ def _collect_raw(
     return copied, collisions
 
 
+# noinspection DuplicatedCode
 def _collect_res_file(
     game_dir: Path,
     writer: ArchiveWriter,
@@ -163,6 +164,7 @@ def _collect_res_file(
     return exported, collisions
 
 
+# noinspection DuplicatedCode
 def _collect_res_text(
     game_dir: Path,
     writer: ArchiveWriter,

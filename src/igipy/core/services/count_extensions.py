@@ -20,9 +20,9 @@ def _iter_member_names(path: Path, is_zip: bool) -> list[str]:
 
 
 def _classify_dat(name: PurePosixPath, member_names: set[str]) -> str:
-    """Classify a ``.dat`` member into a more specific bucket.
+    """Classify a ".dat" member into a more specific bucket.
 
-    The ``.mtp`` companion check works for both zip and directory sources because it tests
+    The ".mtp" companion check works for both zip and directory sources because it tests
     membership in the collected member-name set rather than touching the filesystem.
     """
     if name.with_suffix(".mtp").as_posix() in member_names:

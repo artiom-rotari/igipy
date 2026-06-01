@@ -3,7 +3,7 @@ from pathlib import PurePosixPath
 
 
 def matches_any_pattern(name: str, patterns: list[str]) -> bool:
-    """Return True when the basename of ``name`` matches at least one fnmatch pattern."""
+    """Return True when the basename of "name" matches at least one fnmatch pattern."""
     basename = PurePosixPath(name).name
     return any(fnmatch(basename, pattern) for pattern in patterns)
 

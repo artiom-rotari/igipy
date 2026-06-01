@@ -107,6 +107,7 @@ def igi1_convert_wav_to_wav(dry: bool = False) -> None:
     )
 
 
+# noinspection DuplicatedCode
 @igi1_app.command(
     name="extensions-of-game",
     short_help="Print file counts by extension from the game install directory",

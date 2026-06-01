@@ -28,6 +28,7 @@ class THMHeader(StructModel):
     height: NonNegativeInt
 
 
+# noinspection DuplicatedCode
 class THM(FileModel):
     """Terrain Height Map — float32 heightmap."""
 

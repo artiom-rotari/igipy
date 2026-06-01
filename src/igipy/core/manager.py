@@ -16,8 +16,8 @@ class BaseManager(BaseModel):
 
     @model_validator(mode="after")
     def validate_zip_path_suffixes(self) -> Self:
-        # When a path is declared as a zip archive it must carry the ".zip" suffix; when it is a
-        # directory no suffix is required. The collect/convert paths live on the game-specific
+        # When a path is declared as a zip archive, it must carry the ".zip" suffix; when it is a
+        #  directory, no suffix is required. The collect/convert paths live on the game-specific
         # subclasses, so they are read defensively here to keep BaseManager standalone-valid.
         collect_path: Path | None = getattr(self, "collect_path", None)
         if self.collect_is_zip and collect_path is not None and collect_path.suffix != ".zip":
@@ -34,10 +34,10 @@ class BaseManager(BaseModel):
         return self
 
     def read_from_collect(self, patterns: list[str]) -> Generator[tuple[BytesIO, Path, Path]]:
-        """Yield ``(stream, source_path, collect_origin)`` for matching files in the collect source.
+        """Yield "(stream, source_path, collect_origin)" for matching files in the collect source.
 
         The collect source is read as a zip archive or a directory tree depending on
-        ``collect_is_zip``; pattern matching uses ``Path.match`` so glob patterns like ``**/*.wav``
+        "collect_is_zip"; pattern matching uses "Path.match" so glob patterns like "**/*.wav"
         keep working regardless of the source shape.
         """
         collect_path: Path = getattr(self, "collect_path")  # noqa: B009

@@ -20,8 +20,8 @@ def convert(  # noqa: PLR0913
 ) -> None:
     """Read entries from the collect source and write converted entries to the convert destination.
 
-    Both endpoints honour the zip/directory duality: ``collect_is_zip`` selects whether the source
-    is a zip archive or a directory tree, and ``convert_is_zip`` selects the destination shape. All
+    Both endpoints honour the zip/directory duality: "collect_is_zip" selects whether the source
+    is a zip archive or a directory tree, and "convert_is_zip" selects the destination shape. All
     four combinations are supported through the shared archive layer.
     """
     if dry:

@@ -141,12 +141,12 @@ class XTVMChunk(ilff.Chunk):
 
 class TROPChunk(ilff.Chunk):
     class TROPItem(StructModel):
-        """Portal descriptor (fourcc PORT, ``TROP`` reversed).
+        """Portal descriptor (fourcc PORT, "TROP" reversed).
 
-        Each entry references a contiguous range in two arrays: ``range_a`` (typically 4
-        entries — a portal quad's vertices) and ``range_b`` (typically 2 — its triangles),
-        tagged by an external group/zone ``reference_index``. The ``*_start`` fields are
-        cumulative (each equals the running sum of preceding ``*_count`` values) — verified
+        Each entry references a contiguous range in two arrays: "range_a" (typically 4
+        entries — a portal quad's vertices) and "range_b" (typically 2 — its triangles),
+        tagged by an external group/zone "reference_index". The "*_start" fields are
+        cumulative (each equals the running sum of preceding "*_count" values) — verified
         across all 13 TROP-bearing editor samples.
         """
 
@@ -367,11 +367,11 @@ class XTRVChunk(ilff.RawChunk):
 
         Unlike type 0/1 vertices, type-3 stores NO per-vertex normal — for lightmapped
         static geometry lighting is baked into the lightmap, so runtime normals are not
-        needed. Decoded against the editor's text-MEF sources (gconv-paired samples): the
-        diffuse UV matches the text ``UV()`` command exactly across 128,869/128,869 type-3
-        vertices, with the V stored already flipped as ``1 - source_v``. The second UV set
-        (``lightmap_u``/``lightmap_v``) is the auto-generated lightmap channel, always in
-        ``[0, 1]``.
+        needed. The diffuse V ("diffuse_v") is stored in the SAME convention as
+        "XTRVItem0/1.uv_v", so it is exposed verbatim through the "uv_v" property, and the
+        exporter convention "(uv_u, 1.0 - uv_v)" applies uniformly to every variant. The
+        second UV set ("lightmap_u"/"lightmap_v") is the auto-generated lightmap channel,
+        always in "[0, 1]".
         """
 
         struct: ClassVar = Struct("<7f")
@@ -836,10 +836,10 @@ class MEF(ilff.ILFF):
     ) -> list[XTRVChunk.XTRVItem0 | XTRVChunk.XTRVItem1 | XTRVChunk.XTRVItem3 | XTVSChunk.XTVSItem]:
         """Active vertex list for the current model type.
 
-        Standard models return the XTRV variant matching ``model_type``; the SEMS
+        Standard models return the XTRV variant matching "model_type"; the SEMS
         variant returns its XTVS collision vertices. Type-3 (lightmapped/building)
         vertices carry NO per-vertex normal — lighting is baked into the lightmap.
-        Only the needed XTRV interpretation is parsed (the others are never touched).
+        Only the necessary XTRV interpretation is parsed (the others are never touched).
         """
         if self.is_sems_variant:
             return self.xtvs.content if self.xtvs is not None else []
@@ -867,7 +867,7 @@ class MEF(ilff.ILFF):
         """Active DNER render-group list for the current model type.
 
         Empty for the SEMS variant or when no DNER chunk is present. Only the
-        needed DNER interpretation is parsed.
+        necessary DNER interpretation is parsed.
         """
         if self.dner is None:
             return []
@@ -883,8 +883,8 @@ class MEF(ilff.ILFF):
     def face_material_indices(self) -> list[int]:
         """Per-face material (group) index expanded from the DNER render groups.
 
-        Each render group covers ``face_count`` consecutive faces and binds them
-        to its ``group_index``; this flattens that into one entry per face.
+        Each render group covers "face_count" consecutive faces and binds them
+        to its "group_index"; this flattens that into one entry per face.
         """
         material_indices: list[int] = []
         for group in self.render_groups:
@@ -903,7 +903,7 @@ class MEF(ilff.ILFF):
 
     @property
     def bone_names(self) -> list[str]:
-        """Bone names from MANB, truncated to ``bone_count`` (empty when absent)."""
+        """Bone names from MANB, truncated to "bone_count" (empty when absent)."""
         if self.manb is None:
             return []
         return self.manb.content[: self.bone_count]
