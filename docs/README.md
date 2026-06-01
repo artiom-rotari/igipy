@@ -14,9 +14,9 @@ Formats parsed by shared `core` code and used by both games.
 | Page | Description |
 |------|-------------|
 | [QVM Format](core/formats/qvm.md) | Compiled bytecode script format |
-| [TEX Format](core/formats/tex.md) | Texture image format (stub) |
-| [SPR Format](core/formats/spr.md) | Sprite texture, TEX variant (stub) |
-| [PIC Format](core/formats/pic.md) | Picture texture, TEX variant (stub) |
+| [TEX Format](core/formats/tex.md) | Texture image format, converted to TGA |
+| [SPR Format](core/formats/spr.md) | Sprite texture, TEX variant |
+| [PIC Format](core/formats/pic.md) | Picture texture, TEX variant |
 | [WAV Format](core/formats/wav.md) | Audio format incl. ADPCM (stub) |
 
 ## IGI 1

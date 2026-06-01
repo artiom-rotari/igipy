@@ -37,7 +37,7 @@ from pathlib import Path, PurePosixPath
 import numpy as np
 
 from igipy.core.formats.tex import TEX
-from igipy.igi1.services.tex_to_tga import tex_to_tga
+from igipy.core.services.tex_to_tga import tex_to_tga_image
 from igipy.igi2.formats.mef import MEF
 
 logger = logging.getLogger(__name__)
@@ -52,10 +52,7 @@ COMMON_TEXTURES_DIRECTORY = PurePosixPath("common/textures")
 TEXTURE_SOURCE_SUFFIX = ".tex"
 TEXTURE_OUTPUT_SUFFIX = ".tga"
 
-# TGA header byte offsets used to classify alpha (see "core.formats.tga.TGAHeader").
-_TGA_PIXEL_DEPTH_OFFSET = 16
-_TGA_IMAGE_DESCRIPTOR_OFFSET = 17
-_TGA_PIXEL_DATA_OFFSET = 18
+# TGA pixel-format markers used to classify alpha (see "core.formats.tga.TGAHeader").
 _OPAQUE_ALPHA = 255
 _DEPTH_ARGB1555 = 16
 _ALPHA_BITS_ARGB1555 = 1
@@ -85,15 +82,14 @@ def classify_texture_transparency(tex_source_path: str) -> TextureTransparency:
     """
     try:
         tex = TEX.model_validate_stream(BytesIO(Path(tex_source_path).read_bytes()))
-        tga_stream, _ = tex_to_tga(tex)
+        tga = tex_to_tga_image(tex)
     except Exception as error:  # noqa: BLE001 — never let a bad texture abort the export
         logger.debug("Texture transparency classification failed for %s: %s", tex_source_path, error)
         return TextureTransparency.OPAQUE
 
-    data = tga_stream.getvalue()
-    pixel_depth = data[_TGA_PIXEL_DEPTH_OFFSET]
-    alpha_bits = data[_TGA_IMAGE_DESCRIPTOR_OFFSET] & 0x0F
-    pixels = data[_TGA_PIXEL_DATA_OFFSET:]
+    pixel_depth = tga.header.pixel_depth
+    alpha_bits = tga.header.image_descriptor_alpha_depth
+    pixels = tga.content
 
     if pixel_depth == _DEPTH_ARGB1555 and alpha_bits == _ALPHA_BITS_ARGB1555:
         # ARGB1555 little-endian: alpha is the top bit of each 16-bit texel.

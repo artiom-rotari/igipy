@@ -1,6 +1,6 @@
 from io import BytesIO
 from struct import Struct, unpack
-from typing import ClassVar, Literal, Self, Union
+from typing import ClassVar, Literal, NamedTuple, Self, Union
 
 import numpy as np
 from pydantic import BaseModel, NonNegativeInt
@@ -11,6 +11,22 @@ TEX_VERSION_02 = 2
 TEX_VERSION_07 = 7
 TEX_VERSION_09 = 9
 TEX_VERSION_11 = 11
+
+
+class PixelMode(NamedTuple):
+    pixel_format: str  # TGA pixel-format name understood by TGA.from_raw_bytes
+    numpy_dtype: type  # numpy element type for one packed pixel
+    bitmap_depth: int  # bytes per pixel
+
+
+# Single source of truth for how a texture "mode" maps to a pixel layout. Mode 67 (0x43) is
+# treated identically to mode 3 (ARGB8888): the extra 0x40 bit is a usage flag that does not
+# change the on-disk pixel layout, so both decode the same way.
+PIXEL_MODES: dict[int, PixelMode] = {
+    2: PixelMode(pixel_format="ARGB1555", numpy_dtype=np.uint16, bitmap_depth=2),
+    3: PixelMode(pixel_format="ARGB8888", numpy_dtype=np.uint32, bitmap_depth=4),
+    67: PixelMode(pixel_format="ARGB8888", numpy_dtype=np.uint32, bitmap_depth=4),
+}
 
 
 class TEX(FileModel):
@@ -47,6 +63,10 @@ class TEX(FileModel):
         if isinstance(self.variant, TEX11):
             return self.variant.content
         raise ValueError(f"Unsupported variant: {self.variant}")
+
+    @property
+    def pixel_format(self) -> str:
+        return PIXEL_MODES[self.variant.header.mode].pixel_format
 
 
 class TEX02(BaseModel):
@@ -415,7 +435,7 @@ class Mipmap(BaseModel):
 
         @property
         def bitmap_depth(self) -> int:
-            return {2: 2, 3: 4, 67: 4}[self.mode]
+            return PIXEL_MODES[self.mode].bitmap_depth
 
     header: Header
     bitmap: bytes
@@ -428,7 +448,7 @@ class Mipmap(BaseModel):
 
     @property
     def bitmap_np(self) -> np.ndarray:
-        bitmap_np = np.frombuffer(self.bitmap, dtype={2: np.uint16, 3: np.uint32, 67: np.uint32}[self.header.mode])
+        bitmap_np = np.frombuffer(self.bitmap, dtype=PIXEL_MODES[self.header.mode].numpy_dtype)
         return bitmap_np.reshape((self.header.height, self.header.width))
 
 
