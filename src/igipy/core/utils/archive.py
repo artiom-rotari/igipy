@@ -7,11 +7,9 @@ from typing import Self
 from zipfile import ZipFile
 
 # Suffixes whose contents are large and/or already compressed. Storing them uncompressed
-# (ZIP_STORED) keeps writes cheap and reduces corruption risk if a write is interrupted; small
+# (ZIP_STORED) keeps writes cheap and reduces corruption risk if a writing is interrupted; small
 # textual outputs (json, qsc, fnt, ...) still benefit from ZIP_DEFLATED.
-STORED_SUFFIXES: frozenset[str] = frozenset(
-    {".wav", ".mp3", ".tga", ".bmp", ".jpg", ".jpeg", ".avi", ".fbx"}
-)
+STORED_SUFFIXES: frozenset[str] = frozenset({".wav", ".mp3", ".tga", ".bmp", ".jpg", ".jpeg", ".avi", ".fbx"})
 
 
 def compression_for(name: str) -> int:

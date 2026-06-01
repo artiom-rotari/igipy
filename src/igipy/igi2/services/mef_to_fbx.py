@@ -33,7 +33,11 @@ from igipy.igi2.formats.mef import (
     MODEL_TYPE_SKELETAL,
 )
 from igipy.igi2.services.iff_to_fbx import _position_to_fbx
-from igipy.igi2.services.mef_texture_resolver import RenderGroupTexture, resolve_render_group_textures
+from igipy.igi2.services.mef_texture_resolver import (
+    RenderGroupTexture,
+    TextureTransparency,
+    resolve_render_group_textures,
+)
 from igipy.igi2.services.mesh_normals import compute_vertex_normals
 
 logger = logging.getLogger(__name__)
@@ -467,9 +471,13 @@ def mef_to_fbx(  # noqa: C901, PLR0912, PLR0915
     if collect_path is not None and source_path is not None:
         render_group_textures = resolve_render_group_textures(mef, source_path, collect_path)
 
-    materials, textures, videos, material_indices = _build_materials_and_textures(
+    materials, textures, videos, material_indices, two_sided = _build_materials_and_textures(
         mef, name, mesh_model_id, render_group_textures, len(faces), id_gen, connections
     )
+    if two_sided:
+        # Transparent groups (glass/fences) are thin surfaces; disable backface culling so they
+        # are visible from both sides. FBX culling is per-mesh, so this applies to the whole mesh.
+        models[0].culling = True
 
     geometries = [
         FBXGeometry(
@@ -658,31 +666,45 @@ def _build_materials_and_textures(  # noqa: PLR0913
     face_count: int,
     id_gen: IdGenerator,
     connections: list[FBXConnection],
-) -> tuple[list[FBXMaterial], list[FBXTexture], list[FBXVideo], list[int] | None]:
+) -> tuple[list[FBXMaterial], list[FBXTexture], list[FBXVideo], list[int] | None, bool]:
     """Build one material per render group, sharing textures, and the per-face material index.
 
-    Appends the material/texture/video FBX connections to ``connections``. Returns the
-    materials, textures, videos, and a per-face material-index list (the group ordinal for
-    each face), or ``None`` when there are no render groups (SEMS / no DNER) — in which case a
-    single placeholder material is emitted and the geometry stays single-material ("AllSame").
+    Appends the material/texture/video FBX connections to "connections". Returns the
+    materials, textures, videos, a per-face material-index list (the group ordinal for each face;
+    "None" when there are no render groups — SEMS / no DNER — in which case a single placeholder
+    material is emitted and the geometry stays single-material "AllSame"), and a "two_sided" flag
+    that is True when any group uses a transparent texture (glass/fences are thin surfaces seen from
+    both sides; FBX culling is per-mesh, so the whole mesh is exported two-sided).
+
+    A transparent render group emits FBX material transparency ("TransparencyFactor" + a
+    "TransparentColor" texture link) and sets its texture's "alpha_source="Alpha"" so the
+    diffuse texture's own alpha drives per-texel opacity (alpha-test cutout vs. alpha-blend is
+    finalized at Unity import time).
     """
     render_groups = mef.render_groups
     if not render_groups:
         material_id = id_gen()
         connections.append(FBXConnection(source=material_id, destination=mesh_model_id))
-        return [FBXMaterial(id=material_id, name=name)], [], [], None
+        return [FBXMaterial(id=material_id, name=name)], [], [], None, False
 
     materials: list[FBXMaterial] = []
     textures: list[FBXTexture] = []
     videos: list[FBXVideo] = []
     material_indices: list[int] = []
     texture_ids_by_name: dict[str, int] = {}
+    transparent_group_count = 0
 
     for ordinal, render_group in enumerate(render_groups):
         resolved = render_group_textures[ordinal] if ordinal < len(render_group_textures) else None
+        is_transparent = resolved is not None and resolved.transparency != TextureTransparency.OPAQUE
+        if is_transparent:
+            transparent_group_count += 1
+
         material_id = id_gen()
         material_name = resolved.texture_name if resolved is not None else f"{name}_{ordinal}"
-        materials.append(FBXMaterial(id=material_id, name=material_name))
+        materials.append(
+            FBXMaterial(id=material_id, name=material_name, transparency_factor=1.0 if is_transparent else None)
+        )
         connections.append(FBXConnection(source=material_id, destination=mesh_model_id))
 
         if resolved is not None:
@@ -699,15 +721,29 @@ def _build_materials_and_textures(  # noqa: PLR0913
                         id=texture_id,
                         name=resolved.texture_name,
                         relative_filename=resolved.relative_output_path,
+                        alpha_source="Alpha" if is_transparent else "None",
                     )
                 )
                 connections.append(FBXConnection(source=video_id, destination=texture_id))
             connections.append(FBXConnection(source=texture_id, destination=material_id, property="DiffuseColor"))
+            if is_transparent:
+                # Texture alpha drives material opacity via the TransparentColor channel.
+                connections.append(
+                    FBXConnection(source=texture_id, destination=material_id, property="TransparentColor")
+                )
 
         material_indices.extend([ordinal] * render_group.face_count)
+
+    logger.debug(
+        "materials for %s: %d groups, %d transparent (two_sided=%s)",
+        name,
+        len(render_groups),
+        transparent_group_count,
+        transparent_group_count > 0,
+    )
 
     # Faces are grouped consecutively by render group, so the lengths should match. Guard
     # against any surprise mismatch by dropping back to a single-material ("AllSame") mesh.
     if len(material_indices) != face_count:
-        return materials, textures, videos, None
-    return materials, textures, videos, material_indices
+        return materials, textures, videos, None, transparent_group_count > 0
+    return materials, textures, videos, material_indices, transparent_group_count > 0

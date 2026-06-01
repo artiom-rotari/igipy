@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from functools import cached_property
 from io import BytesIO
@@ -6,9 +7,11 @@ from typing import ClassVar, Literal, Self, TypeVar
 
 from pydantic import BaseModel, Field, NonNegativeInt, model_validator
 
-from igipy.core.base import StructModel
+from igipy.core.base import FileIgnored, StructModel
 from igipy.core.formats import ilff
 from igipy.igi2.formats.common import REIHChunk
+
+logger = logging.getLogger(__name__)
 
 # Model type discriminator stored in HSEM.model_type. Static (0) and skeletal
 # (1) vertices carry per-vertex normals; lightmapped/building (3) vertices do
@@ -386,13 +389,15 @@ class XTRVChunk(ilff.RawChunk):
 
         @property
         def uv_v(self) -> float:
-            """Raw source V, consistent with XTRVItem0/1.uv_v.
+            """Diffuse V, consistent with XTRVItem0/1.uv_v.
 
-            ``diffuse_v`` is stored pre-flipped (``1 - source_v``); reconstruct the raw
-            source V so every XTRV variant exposes ``uv_u``/``uv_v`` with identical meaning
-            and the exporter convention ``(uv_u, 1.0 - uv_v)`` works uniformly.
+            Type-3 stores the diffuse V in the same convention as the type-0/1 "uv_v"
+            field, so it is returned unchanged. The exporter then applies the shared
+            "1.0 - uv_v" flip to every variant, keeping type-3 texture orientation aligned
+            with type-0/1. (A previous "1.0 - diffuse_v" inversion here double-flipped type-3
+            and rendered its textures upside-down — e.g. "201_01_1" and the parachute models.)
             """
-            return 1.0 - self.diffuse_v
+            return self.diffuse_v
 
     @classmethod
     def model_validate_header(cls, header: ilff.ChunkHeader) -> None:
@@ -1001,6 +1006,18 @@ class MEF(ilff.ILFF):
 
     @classmethod
     def model_validate_stream(cls, stream: BytesIO) -> Self:
+        # Some files carry a .mef extension but are a different IFF-family format, not an
+        # ILFF/OCEM mesh (e.g. menusystem/models/minefield.mef is a "FORM"/TDOB resource).
+        # They are not MEF models at all, so skip them cleanly via FileIgnored instead of
+        # raising a hard ILFF-header validation error that the convert pipeline reports as a
+        # failure. A genuine MEF that is merely malformed still has the "ILFF" magic and so
+        # falls through to normal parsing (and any real error it raises is surfaced).
+        magic = stream.read(4)
+        stream.seek(0)
+        if magic != b"ILFF":
+            logger.debug("[FIX] skipping non-ILFF .mef file (magic %r)", magic)
+            raise FileIgnored(f"Not an ILFF/MEF file (magic {magic!r})")
+
         header, content_type, content = super().model_validate_chunks(stream)
 
         if content_type != b"OCEM":

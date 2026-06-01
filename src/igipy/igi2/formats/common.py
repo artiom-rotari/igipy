@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from itertools import batched
 from struct import Struct
@@ -5,6 +6,16 @@ from struct import Struct
 from pydantic import BaseModel
 
 from igipy.core.formats import ilff
+
+logger = logging.getLogger(__name__)
+
+# A REIH chunk stores one uint8 child-count per bone followed by one float3 offset per
+# bone, so each bone costs 1 + 12 = 13 bytes. Most models append a single trailing
+# separator/terminator byte after the child-count array (total = 13 * bone_count + 1),
+# but a rare variant omits it (total = 13 * bone_count exactly). Both encode the same
+# bone_count, so floor division recovers it for either layout.
+REIH_BYTES_PER_BONE = 13
+REIH_OFFSET_BYTES_PER_BONE = 12
 
 
 class REIHChunk(ilff.Chunk):
@@ -22,9 +33,24 @@ class REIHChunk(ilff.Chunk):
 
     @classmethod
     def model_validate_content(cls, content: bytes) -> dict:
-        bone_count = (len(content) - 1) // 13
+        # bone_count = len // 13 handles both the common "13 * bone_count + 1" layout and the
+        # rare "13 * bone_count" layout that omits the trailing separator byte (e.g.
+        # missions/.../pat_2.mef). The previous "(len - 1) // 13" hard-coded the separator and
+        # computed one bone too few for the no-separator variant, misaligning the float region
+        # and raising "unpack requires a buffer of N bytes". Only 0 (no separator) and 1 (with
+        # separator) are valid remainders; anything else means the chunk is not a REIH layout.
+        remainder = len(content) % REIH_BYTES_PER_BONE
+        if remainder not in {0, 1}:
+            raise ValueError(
+                f"Unexpected REIH content length {len(content)} (remainder {remainder} mod {REIH_BYTES_PER_BONE})"
+            )
+        bone_count = len(content) // REIH_BYTES_PER_BONE
+        if remainder == 0 and bone_count:
+            logger.debug("[FIX] REIH no-separator variant: length=%d bones=%d", len(content), bone_count)
         bone_child_counts = list(content[:bone_count])
-        bone_offsets_data = content[bone_count + 1 :]
+        # The float offsets are always the trailing bone_count * 3 floats, regardless of whether
+        # a separator byte precedes them. Slicing from the tail works for both layouts.
+        bone_offsets_data = content[len(content) - bone_count * REIH_OFFSET_BYTES_PER_BONE :]
         bone_offsets = list(batched(Struct(f"<{bone_count * 3}f").unpack(bone_offsets_data), 3, strict=True))
         bones = [
             cls.Bone(child_count=child_count, offset_x=offset_x, offset_y=offset_y, offset_z=offset_z)

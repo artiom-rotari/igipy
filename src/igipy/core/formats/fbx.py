@@ -87,8 +87,18 @@ class FBXGeometry(BaseModel):
 
 
 class FBXMaterial(BaseModel):
+    """A phong material bound to a mesh.
+
+    When "transparency_factor" is "None", the material is opaque (the default, byte-identical
+    to the original output). When set (0.0 opaque. 1.0 fully transparent) the material emits FBX
+    transparency properties so importers treat it as see-through; the actual per-texel opacity then
+    comes from the diffuse texture's alpha (the texture is also connected to "TransparentColor" and
+    its :class:`FBXTexture` uses "alpha_source="Alpha"").
+    """
+
     id: int
     name: str
+    transparency_factor: float | None = None
 
 
 class FBXVideo(BaseModel):
@@ -111,12 +121,17 @@ class FBXTexture(BaseModel):
     Carries the same file reference as its :class:`FBXVideo` and names the UV set ("map1",
     matching "LayerElementUV"). It links to a material through an ""OP"" connection with
     property ""DiffuseColor"" and to its video through an ""OO"" connection.
+
+    "alpha_source" is the FBX "Texture_Alpha_Source" value: ""None"" ignores the texture
+    alpha (opaque, the default), ""Alpha"" uses the texture's alpha channel to drive material
+    transparency (paired with a transparent :class:`FBXMaterial`).
     """
 
     id: int
     name: str
     relative_filename: str
     filename: str = ""
+    alpha_source: str = "None"
 
 
 class FBXNodeAttribute(BaseModel):
@@ -567,6 +582,13 @@ class FBX(FileModel):
         w.line('P: "AmbientColor", "Color", "", "A",0,0,0')
         w.line('P: "SpecularColor", "Color", "", "A",0.5,0.5,0.5')
         w.line('P: "ShininessExponent", "Number", "", "A",20')
+        if mat.transparency_factor is not None:
+            # Maya/FBX texture-alpha transparency recipe: a white TransparentColor that the
+            # connected diffuse texture (alpha_source="Alpha") drives, enabled by TransparencyFactor.
+            # No global "Opacity" is emitted — a literal Opacity of 0 would make importers that
+            # ignore the texture connection render the whole material invisible.
+            w.line('P: "TransparentColor", "Color", "", "A",1,1,1')
+            w.line(f'P: "TransparencyFactor", "Number", "", "A",{_FORMAT_FLOAT.format(mat.transparency_factor)}')
         w.end()
         w.end()
         w.line()
@@ -601,7 +623,7 @@ class FBX(FileModel):
         w.line(f'RelativeFilename: "{texture.relative_filename}"')
         w.line("ModelUVTranslation: 0,0")
         w.line("ModelUVScaling: 1,1")
-        w.line('Texture_Alpha_Source: "None"')
+        w.line(f'Texture_Alpha_Source: "{texture.alpha_source}"')
         w.line("Cropping: 0,0,0,0")
         w.end()
         w.line()
