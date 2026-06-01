@@ -232,16 +232,28 @@ Offset  Size  Type     Field
 26      2     uint16   Reserved (always 0)
 ```
 
-**Group ↔ material/texture mapping (decoded).** Each DNER render group is one draw call for one
-*renderable* material — a material that has a `DiffuseTMap`. Collision-only materials (no
-`DiffuseTMap`, e.g. `collision01_*`) get no render group. The groups are emitted in source
-material-id order, so the group ordinal maps to the N-th renderable material → its texture. Verified
-by matching per-group `face_count` to the text per-material face counts (e.g. `407_18_1` groups
-`[183,209,13,6,9,288,20,10,60]` exactly equal the renderable-material face counts in id order,
-skipping the texture-less collision material). This is a strong heuristic, **not absolute** — the
-compiler can split or reorder groups (observed in `631_04_2`: same total faces, different partition).
-The texture *filename* is not stored in the binary mesh; resolving it needs the model/texture naming
-convention and the MTP material system.
+**Group ↔ material/texture mapping (decoded & verified).** Each DNER render group is one draw call
+for one *renderable* material (a material with a `DiffuseTMap`); collision-only materials (e.g.
+`collision01_*`) get no render group. The texture **filename is not stored in the binary mesh** — it
+lives in the level material/texture table (`<level>.mtp` and its text sibling `<level>.dat`; see
+[dat_mtp.md](dat_mtp.md)). Each render group's **`group_index` indexes its model's texture list** in
+that table:
+
+```
+texture_name = level_table[model_name][ render_group.group_index ]
+```
+
+Verified against the reverse-engineered text `.MEF` sources (`DiffuseTMap` in material order):
+`group_index` is a valid index into the `.dat` list for **7485/7497 models (99 %)**, and the resolved
+textures match the text sources exactly — e.g. `260_02_1` →
+`[260_06_1, 260_07_1, 260_05_1, 260_08_1, 260_10_1, 260_09_1]` and `407_18_1` →
+`[boothmetal, bothwood, 460_49_1, celing, boothroof, multi, 362_02_1, 362_03_1, multi]` (group 8 has
+`group_index=5`, correctly reusing `multi`). The group↔material correspondence is independently
+confirmed by exact `face_count` matching (e.g. `407_18_1` groups `[183,209,13,6,9,288,20,10,60]`
+equal the renderable-material face counts in id order). The compiler may still split/reorder groups
+(`631_04_2`: same total faces, different partition); `group_index` indexing handles splits because
+multiple groups can share one slot. This mapping drives the textured FBX export
+(`convert-mef-to-fbx`).
 
 ### Offset Rule
 

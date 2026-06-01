@@ -1,3 +1,4 @@
+import functools
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
@@ -276,10 +277,19 @@ def igi2_convert_iff_to_qsc(dry: bool = False) -> None:
 
 @igi2_app.command(
     name="convert-mef-to-fbx",
-    short_help="Convert .mef files from collect source to .fbx 3D model in convert destination",
+    short_help="Convert .mef files from collect source to textured .fbx 3D model in convert destination",
 )
 def igi2_convert_mef_to_fbx(dry: bool = False) -> None:
-    _run_convert(converter=mef_to_fbx, patterns=["*.mef"], dry=dry)
+    """Export .mef models to .fbx with per-render-group diffuse textures.
+
+    Textures are resolved through each level's .mtp and referenced as sibling .tga files,
+    so run ``convert-tex-to-tga`` first to produce those images. Models without a usable
+    .mtp entry still export untextured.
+    """
+    config = Config.model_validate_file()
+    # Bind the collect-source root so mef_to_fbx can read the level .mtp and resolve textures.
+    converter = functools.partial(mef_to_fbx, collect_path=config.igi2.collect_path)
+    _run_convert(converter=converter, patterns=["*.mef"], dry=dry)
 
 
 @igi2_app.command(

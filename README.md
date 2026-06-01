@@ -96,7 +96,7 @@ accepts `--dry` to preview without writing.
 | `convert-dat-graphcover-to-json` | `graphcover*.dat` AI cover/visibility data → `.json`. |
 | `convert-iff-to-fbx` | `.iff` skeletal animation → FBX. |
 | `convert-iff-to-qsc` | `.iff` skeletal animation → `.bef` text source. |
-| `convert-mef-to-fbx` | `.mef` 3D model → FBX. |
+| `convert-mef-to-fbx` | `.mef` 3D model → FBX (with per-render-group diffuse textures; run `convert-tex-to-tga` first). |
 | `convert-mef-to-qsc` | `.mef` 3D model → text source. |
 | `res-to-zip <file.res>` | Convert a single `.res` file to `.zip` / `.json`. |
 | `extensions-of-game` | Print a file-type count table for the game install directory. |

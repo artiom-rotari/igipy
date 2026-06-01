@@ -22,6 +22,8 @@ from igipy.core.formats.fbx import (
     FBXPose,
     FBXPoseNode,
     FBXSkin,
+    FBXTexture,
+    FBXVideo,
     IdGenerator,
 )
 from igipy.igi2.formats.mef import (
@@ -31,6 +33,7 @@ from igipy.igi2.formats.mef import (
     MODEL_TYPE_SKELETAL,
 )
 from igipy.igi2.services.iff_to_fbx import _position_to_fbx
+from igipy.igi2.services.mef_texture_resolver import RenderGroupTexture, resolve_render_group_textures
 from igipy.igi2.services.mesh_normals import compute_vertex_normals
 
 logger = logging.getLogger(__name__)
@@ -401,7 +404,18 @@ def _extract_sems(
 # ---------------------------------------------------------------------------
 
 
-def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:  # noqa: C901, PLR0912, PLR0915
+def mef_to_fbx(  # noqa: C901, PLR0912, PLR0915
+    source_io: BytesIO,
+    source_path: Path | None = None,
+    collect_path: Path | None = None,
+) -> tuple[BytesIO, Path | None]:
+    """Export a MEF model to FBX.
+
+    When ``collect_path`` (the collect-source root) and ``source_path`` are both given, each
+    render group is bound to its diffuse texture resolved through the level MTP (see
+    ``mef_texture_resolver``). Without them the mesh exports untextured (one placeholder
+    material), preserving the original behavior and backward compatibility.
+    """
     target_path: Path | None = source_path.with_suffix(".fbx") if source_path is not None else None
     mef = MEF.model_validate_stream(source_io)
 
@@ -438,20 +452,38 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
 
     # Core objects
     geometry_id = id_gen()
-    material_id = id_gen()
     mesh_model_id = id_gen()
 
-    geometries = [FBXGeometry(id=geometry_id, name=name, positions=positions, faces=faces, normals=normals, uvs=uvs)]
-    materials = [FBXMaterial(id=material_id, name=name)]
     node_attributes: list[FBXNodeAttribute] = []
     models: list[FBXModel] = [FBXModel(id=mesh_model_id, name=name, type="Mesh")]
     skins: list[FBXSkin] = []
     poses: list[FBXPose] = []
     connections: list[FBXConnection] = []
 
-    # Geometry -> Mesh Model, Material -> Mesh Model, Mesh Model -> scene root
+    # Materials + textures. One material per render group (faces are ordered group-by-group,
+    # so the per-face material index is the group ordinal); duplicate textures are shared.
+    render_group_textures: list[RenderGroupTexture | None] = []
+    if collect_path is not None and source_path is not None:
+        render_group_textures = resolve_render_group_textures(mef, source_path, collect_path)
+
+    materials, textures, videos, material_indices = _build_materials_and_textures(
+        mef, name, mesh_model_id, render_group_textures, len(faces), id_gen, connections
+    )
+
+    geometries = [
+        FBXGeometry(
+            id=geometry_id,
+            name=name,
+            positions=positions,
+            faces=faces,
+            normals=normals,
+            uvs=uvs,
+            material_indices=material_indices,
+        )
+    ]
+
+    # Geometry -> Mesh Model, Mesh Model -> scene root (material -> model wired above)
     connections.append(FBXConnection(source=geometry_id, destination=mesh_model_id))
-    connections.append(FBXConnection(source=material_id, destination=mesh_model_id))
     connections.append(FBXConnection(source=mesh_model_id, destination=0))
 
     # Skeleton setup
@@ -604,6 +636,8 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
         name=name,
         geometries=geometries,
         materials=materials,
+        videos=videos,
+        textures=textures,
         node_attributes=node_attributes,
         models=models,
         skins=skins,
@@ -613,3 +647,66 @@ def mef_to_fbx(source_io: BytesIO, source_path: Path | None = None) -> tuple[Byt
 
     target_io, _ = fbx.model_dump_stream()
     return target_io, target_path
+
+
+def _build_materials_and_textures(  # noqa: PLR0913
+    mef: MEF,
+    name: str,
+    mesh_model_id: int,
+    render_group_textures: list[RenderGroupTexture | None],
+    face_count: int,
+    id_gen: IdGenerator,
+    connections: list[FBXConnection],
+) -> tuple[list[FBXMaterial], list[FBXTexture], list[FBXVideo], list[int] | None]:
+    """Build one material per render group, sharing textures, and the per-face material index.
+
+    Appends the material/texture/video FBX connections to ``connections``. Returns the
+    materials, textures, videos, and a per-face material-index list (the group ordinal for
+    each face), or ``None`` when there are no render groups (SEMS / no DNER) — in which case a
+    single placeholder material is emitted and the geometry stays single-material ("AllSame").
+    """
+    render_groups = mef.render_groups
+    if not render_groups:
+        material_id = id_gen()
+        connections.append(FBXConnection(source=material_id, destination=mesh_model_id))
+        return [FBXMaterial(id=material_id, name=name)], [], [], None
+
+    materials: list[FBXMaterial] = []
+    textures: list[FBXTexture] = []
+    videos: list[FBXVideo] = []
+    material_indices: list[int] = []
+    texture_ids_by_name: dict[str, int] = {}
+
+    for ordinal, render_group in enumerate(render_groups):
+        resolved = render_group_textures[ordinal] if ordinal < len(render_group_textures) else None
+        material_id = id_gen()
+        material_name = resolved.texture_name if resolved is not None else f"{name}_{ordinal}"
+        materials.append(FBXMaterial(id=material_id, name=material_name))
+        connections.append(FBXConnection(source=material_id, destination=mesh_model_id))
+
+        if resolved is not None:
+            texture_id = texture_ids_by_name.get(resolved.texture_name)
+            if texture_id is None:
+                texture_id = id_gen()
+                video_id = id_gen()
+                texture_ids_by_name[resolved.texture_name] = texture_id
+                videos.append(
+                    FBXVideo(id=video_id, name=resolved.texture_name, relative_filename=resolved.relative_output_path)
+                )
+                textures.append(
+                    FBXTexture(
+                        id=texture_id,
+                        name=resolved.texture_name,
+                        relative_filename=resolved.relative_output_path,
+                    )
+                )
+                connections.append(FBXConnection(source=video_id, destination=texture_id))
+            connections.append(FBXConnection(source=texture_id, destination=material_id, property="DiffuseColor"))
+
+        material_indices.extend([ordinal] * render_group.face_count)
+
+    # Faces are grouped consecutively by render group, so the lengths should match. Guard
+    # against any surprise mismatch by dropping back to a single-material ("AllSame") mesh.
+    if len(material_indices) != face_count:
+        return materials, textures, videos, None
+    return materials, textures, videos, material_indices

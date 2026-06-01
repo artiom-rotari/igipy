@@ -80,11 +80,43 @@ class FBXGeometry(BaseModel):
     faces: list[tuple[int, int, int]]
     normals: list[tuple[float, float, float]] | None = None
     uvs: list[tuple[float, float]] | None = None
+    # Per-polygon material index (one per face), each value an index into the materials
+    # connected to this geometry's model node. When None, every face uses the single
+    # material (the legacy "AllSame" behavior for untextured / single-material meshes).
+    material_indices: list[int] | None = None
 
 
 class FBXMaterial(BaseModel):
     id: int
     name: str
+
+
+class FBXVideo(BaseModel):
+    """An image clip (the actual texture file reference).
+
+    "relative_filename" is resolved relative to the FBX file; "filename" is the path an
+    importer falls back to when the relative path misses (defaults to "relative_filename").
+    A: class:`FBXTexture` links to its video through an ""OO"" connection.
+    """
+
+    id: int
+    name: str
+    relative_filename: str
+    filename: str = ""
+
+
+class FBXTexture(BaseModel):
+    """A texture object bound to a material's "DiffuseColor" property.
+
+    Carries the same file reference as its :class:`FBXVideo` and names the UV set ("map1",
+    matching "LayerElementUV"). It links to a material through an ""OP"" connection with
+    property ""DiffuseColor"" and to its video through an ""OO"" connection.
+    """
+
+    id: int
+    name: str
+    relative_filename: str
+    filename: str = ""
 
 
 class FBXNodeAttribute(BaseModel):
@@ -186,6 +218,8 @@ class FBX(FileModel):
 
     geometries: list[FBXGeometry] = Field(default_factory=list)
     materials: list[FBXMaterial] = Field(default_factory=list)
+    videos: list[FBXVideo] = Field(default_factory=list)
+    textures: list[FBXTexture] = Field(default_factory=list)
     node_attributes: list[FBXNodeAttribute] = Field(default_factory=list)
     models: list[FBXModel] = Field(default_factory=list)
     skins: list[FBXSkin] = Field(default_factory=list)
@@ -216,6 +250,10 @@ class FBX(FileModel):
             self._write_geometry(w, geo)
         for mat in self.materials:
             self._write_material(w, mat)
+        for video in self.videos:
+            self._write_video(w, video)
+        for texture in self.textures:
+            self._write_texture(w, texture)
         for attribute in self.node_attributes:
             self._write_node_attribute(w, attribute)
         for model in self.models:
@@ -304,6 +342,8 @@ class FBX(FileModel):
     def _write_definitions(self, w: _Writer) -> None:  # noqa: PLR0915
         geometry_count = len(self.geometries)
         material_count = len(self.materials)
+        video_count = len(self.videos)
+        texture_count = len(self.textures)
         node_attribute_count = len(self.node_attributes)
         model_count = len(self.models)
         deformer_count = sum(1 + len(s.clusters) for s in self.skins)
@@ -314,6 +354,7 @@ class FBX(FileModel):
         curve_count = len(self.animation_curves)
 
         total = 1 + geometry_count + material_count + node_attribute_count + model_count
+        total += video_count + texture_count
         total += deformer_count + pose_count
         total += animation_stack_count + animation_layer_count + curve_node_count + curve_count
 
@@ -358,6 +399,27 @@ class FBX(FileModel):
         if material_count:
             w.begin('ObjectType: "Material"')
             w.line(f"Count: {material_count}")
+            w.end()
+
+        if texture_count:
+            w.begin('ObjectType: "Texture"')
+            w.line(f"Count: {texture_count}")
+            w.begin('PropertyTemplate: "FbxFileTexture"')
+            w.section("Properties70")
+            w.line('P: "UVSet", "KString", "", "", "map1"')
+            w.line('P: "UseMaterial", "bool", "", "",0')
+            w.end()
+            w.end()
+            w.end()
+
+        if video_count:
+            w.begin('ObjectType: "Video"')
+            w.line(f"Count: {video_count}")
+            w.begin('PropertyTemplate: "FbxVideo"')
+            w.section("Properties70")
+            w.line('P: "Path", "KString", "XRefUrl", "", ""')
+            w.end()
+            w.end()
             w.end()
 
         if deformer_count:
@@ -409,7 +471,7 @@ class FBX(FileModel):
         w.line()
 
     @staticmethod
-    def _write_geometry(w: _Writer, geo: FBXGeometry) -> None:  # noqa: C901, PLR0915
+    def _write_geometry(w: _Writer, geo: FBXGeometry) -> None:  # noqa: C901, PLR0912, PLR0915
         w.begin(f'Geometry: {geo.id}, "Geometry::{geo.name}", "Mesh"')
 
         if not geo.positions or not geo.faces:
@@ -461,9 +523,16 @@ class FBX(FileModel):
         w.begin("LayerElementMaterial: 0")
         w.line("Version: 101")
         w.line('Name: ""')
-        w.line('MappingInformationType: "AllSame"')
-        w.line('ReferenceInformationType: "IndexToDirect"')
-        w.array("Materials", 1, "0")
+        # Per-polygon material assignment binds each render group's faces to its own material;
+        # it requires exactly one index per polygon, otherwise fall back to a single material.
+        if geo.material_indices is not None and len(geo.material_indices) == len(geo.faces):
+            w.line('MappingInformationType: "ByPolygon"')
+            w.line('ReferenceInformationType: "IndexToDirect"')
+            w.array("Materials", len(geo.material_indices), _format_ints(geo.material_indices))
+        else:
+            w.line('MappingInformationType: "AllSame"')
+            w.line('ReferenceInformationType: "IndexToDirect"')
+            w.array("Materials", 1, "0")
         w.end()
 
         w.begin("Layer: 0")
@@ -499,6 +568,41 @@ class FBX(FileModel):
         w.line('P: "SpecularColor", "Color", "", "A",0.5,0.5,0.5')
         w.line('P: "ShininessExponent", "Number", "", "A",20')
         w.end()
+        w.end()
+        w.line()
+
+    @staticmethod
+    def _write_video(w: _Writer, video: FBXVideo) -> None:
+        filename = video.filename or video.relative_filename
+        w.begin(f'Video: {video.id}, "Video::{video.name}", "Clip"')
+        w.line('Type: "Clip"')
+        w.section("Properties70")
+        w.line(f'P: "Path", "KString", "XRefUrl", "", "{filename}"')
+        w.end()
+        w.line("UseMipMap: 0")
+        w.line(f'Filename: "{filename}"')
+        w.line(f'RelativeFilename: "{video.relative_filename}"')
+        w.end()
+        w.line()
+
+    @staticmethod
+    def _write_texture(w: _Writer, texture: FBXTexture) -> None:
+        filename = texture.filename or texture.relative_filename
+        w.begin(f'Texture: {texture.id}, "Texture::{texture.name}", ""')
+        w.line('Type: "TextureVideoClip"')
+        w.line("Version: 202")
+        w.line(f'TextureName: "Texture::{texture.name}"')
+        w.section("Properties70")
+        w.line('P: "UVSet", "KString", "", "", "map1"')
+        w.line('P: "UseMaterial", "bool", "", "",1')
+        w.end()
+        w.line(f'Media: "Video::{texture.name}"')
+        w.line(f'FileName: "{filename}"')
+        w.line(f'RelativeFilename: "{texture.relative_filename}"')
+        w.line("ModelUVTranslation: 0,0")
+        w.line("ModelUVScaling: 1,1")
+        w.line('Texture_Alpha_Source: "None"')
+        w.line("Cropping: 0,0,0,0")
         w.end()
         w.line()
 
