@@ -11,6 +11,7 @@ from collections import defaultdict
 from io import BytesIO
 from pathlib import Path
 
+from igipy.core.base import FileIgnored
 from igipy.core.formats.fbx import (
     FBX,
     FBXCluster,
@@ -389,18 +390,81 @@ def _extract_building(
     return positions, faces, normals, uvs
 
 
+# Below this squared length a normal is treated as degenerate (zero-length).
+_DEGENERATE_LENGTH_EPSILON = 1e-9
+
+
+def _normalize_or_fallback(
+    normal: tuple[float, float, float],
+    triangle: list[tuple[float, float, float]],
+) -> tuple[float, float, float]:
+    """Normalize "normal"; when it is degenerate, derive a geometric face normal.
+
+    Used for SEMS authored plane normals: a zero-length CAFS plane normal falls back
+    to the "(c - a) x (b - a)" cross product (the IGI2 winding convention shared with
+    "compute_vertex_normals", computed here in FBX space), and finally to +Z when the
+    triangle itself is degenerate.
+    """
+    length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]) ** 0.5
+    if length > _DEGENERATE_LENGTH_EPSILON:
+        return normal[0] / length, normal[1] / length, normal[2] / length
+
+    (ax, ay, az), (bx, by, bz), (cx, cy, cz) = triangle
+    edge_u_x, edge_u_y, edge_u_z = cx - ax, cy - ay, cz - az
+    edge_v_x, edge_v_y, edge_v_z = bx - ax, by - ay, bz - az
+    geometric_x = edge_u_y * edge_v_z - edge_u_z * edge_v_y
+    geometric_y = edge_u_z * edge_v_x - edge_u_x * edge_v_z
+    geometric_z = edge_u_x * edge_v_y - edge_u_y * edge_v_x
+    geometric_length = (geometric_x * geometric_x + geometric_y * geometric_y + geometric_z * geometric_z) ** 0.5
+    if geometric_length > _DEGENERATE_LENGTH_EPSILON:
+        return geometric_x / geometric_length, geometric_y / geometric_length, geometric_z / geometric_length
+    return 0.0, 0.0, 1.0
+
+
 def _extract_sems(
     mef: MEF,
 ) -> tuple[
     list[tuple[float, float, float]],
     list[tuple[int, int, int]],
-    None,
+    list[tuple[float, float, float]],
     None,
 ]:
-    """Extract positions and faces for SEMS variant."""
-    vertices = mef.render_vertices
-    positions = [_position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in vertices]
-    return positions, mef.render_faces, None, None
+    """Extract de-indexed positions, faces, and authored normals for the SEMS variant.
+
+    The SEMS simplified-collision variant stores no per-vertex normal, but each CAFS
+    face carries an authored plane normal — the convex-hull outward normal. FBX's
+    "LayerElementNormal" maps one normal per VERTEX index, so a hull vertex shared by
+    faces with different plane normals could keep only one of them; and emitting no
+    normal at all makes Unity recalculate (producing inverted / see-through faces).
+    To preserve the authored flat normals the mesh is DE-INDEXED: every triangle gets
+    three fresh vertices that each carry its face's plane normal. The plane normal is
+    swizzled with the same Z-up -> Y-up "_normal_to_fbx" used for type 0/1 authored
+    normals, so it points outward in FBX space; the later winding reversal does not
+    move vertices, so the vertex -> normal mapping stays valid.
+    """
+    if mef.cafs is None or mef.xtvs is None:
+        return [], [], [], None
+
+    source_positions = [
+        _position_to_fbx(vertex.position_x, vertex.position_y, vertex.position_z) for vertex in mef.xtvs.content
+    ]
+    vertex_count = len(source_positions)
+
+    positions: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, int, int]] = []
+    normals: list[tuple[float, float, float]] = []
+    for item in mef.cafs.content:
+        indices = (item.index_a, item.index_b, item.index_c)
+        if any(not 0 <= index < vertex_count for index in indices):
+            continue
+        triangle = [source_positions[index] for index in indices]
+        normal = _normalize_or_fallback(_normal_to_fbx(item.normal_x, item.normal_y, item.normal_z), triangle)
+        base = len(positions)
+        positions.extend(triangle)
+        normals.extend((normal, normal, normal))
+        faces.append((base, base + 1, base + 2))
+
+    return positions, faces, normals, None
 
 
 # ---------------------------------------------------------------------------
@@ -441,12 +505,31 @@ def mef_to_fbx(  # noqa: C901, PLR0912, PLR0915
 
     if is_sems:
         positions, faces, normals, uvs = _extract_sems(mef)
+        logger.debug(
+            "[FIX] SEMS authored CAFS normals (de-indexed): model=%s faces=%d vertices=%d",
+            name,
+            len(faces),
+            len(positions),
+        )
     elif model_type == MODEL_TYPE_SKELETAL:
         positions, faces, normals, uvs = _extract_skeletal(mef, accumulated_bone_offsets)
     elif model_type == MODEL_TYPE_BUILDING:
         positions, faces, normals, uvs = _extract_building(mef)
     else:
         positions, faces, normals, uvs = _extract_static(mef)
+
+    # Some MEFs carry no render geometry — kill/trigger volumes (killbox, killair),
+    # control points (ctrl3_01_1), and proxy/reference models (313_03_3, ...) have an
+    # empty XTRV (0 vertices / 0 faces). Emitting them produces a degenerate FBX with
+    # "Vertices: 0", which Unity imports as an empty mesh and warns "doesn't contain
+    # normals" / "can't calculate tangents". They are invisible game-logic volumes with
+    # no authored visual mesh, so skip them (matching the FileIgnored skip pattern used
+    # for non-ILFF / empty containers) instead of writing an empty FBX.
+    if not positions or not faces:
+        logger.debug(
+            "[FIX] skipping MEF with empty render geometry: model=%s type=%s sems=%s", name, model_type, is_sems
+        )
+        raise FileIgnored(f"MEF has no render geometry: {name}")
 
     # IGI2 winds front faces clockwise; FBX/Unity expect counter-clockwise, so the
     # camera-facing triangles get culled (the near wall is invisible, only the far
