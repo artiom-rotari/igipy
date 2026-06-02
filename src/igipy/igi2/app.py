@@ -24,6 +24,7 @@ from igipy.igi2.services.iff_to_qsc import iff_to_qsc
 from igipy.igi2.services.mef_to_fbx import mef_to_fbx
 from igipy.igi2.services.mef_to_qsc import mef_to_qsc
 from igipy.igi2.services.mtp_to_json import mtp_to_json
+from igipy.igi2.services.objects_to_json import objects_to_json
 from igipy.igi2.services.olm_to_tga import olm_to_tga
 from igipy.igi2.services.syn_to_json import syn_to_json
 from igipy.igi2.services.thm_to_tga import thm_to_tga
@@ -312,6 +313,19 @@ def igi2_convert_mef_to_qsc(dry: bool = False) -> None:
 )
 def igi2_convert_mtp_to_json(dry: bool = False) -> None:
     _run_convert(converter=mtp_to_json, patterns=["*.mtp"], dry=dry)
+
+
+@igi2_app.command(
+    name="convert-objects-to-json",
+    short_help="[temporary] Export every level objects.qvm to a readable .json scene tree",
+)
+def igi2_convert_objects_to_json(dry: bool = False) -> None:
+    """Temporary helper: decode each level objects.qvm into a named JSON task tree.
+
+    Reads the declarations to name the positional Task_New values, drops the declarations,
+    and writes the remaining task tree as objects.json. Not part of "convert-all".
+    """
+    _run_convert(converter=objects_to_json, patterns=["objects.qvm"], dry=dry)
 
 
 @igi2_app.command(
