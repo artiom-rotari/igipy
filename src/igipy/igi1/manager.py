@@ -41,3 +41,6 @@ class IGI1Manager(BaseManager):
 
     def read_all_syn(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
         yield from self.read_from_collect(patterns=["**/*.syn"])
+
+    def read_all_iff(self) -> Generator[tuple[BytesIO, Path, Path | None]]:
+        yield from self.read_from_collect(patterns=["**/*.iff"])

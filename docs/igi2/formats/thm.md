@@ -47,7 +47,9 @@ The first 32 bytes are the common terrain header shared with TMM and TLM formats
 
 ## Body — Height Data
 
-`width × height × 4` bytes of float32 values. Each value is a raw terrain height in local units. Multiply by `terrain_scale` (0.01) to get world units.
+`width × height × 4` bytes of float32 values. Each value is a raw terrain height in fixed-point game units. To convert to meters, **divide by 4096** (the engine's 12-bit fixed-point convention; see [Terrain → Unity Export](../terrain_to_unity.md)).
+
+> **Do not use `terrain_scale` for this.** The on-disk `terrain_scale` field (always `0.01`) is *not* the real-world conversion factor — multiplying raw heights by `0.01` yields values far off the map. The verified conversion is `÷ 4096`, corroborated by the IFF fixed-point convention ("4096 game units = 1 meter") and the map editor's `SetScale(40.96)`.
 
 Values are stored row by row from the top-left corner of the terrain patch.
 
@@ -71,20 +73,44 @@ total_file_size = 52 + body_size [+ mipmap_size]
 
 2 of the 50 THM files in the game include a full mipmap chain after the top-level data. All levels down to 1×1 are included.
 
-Mipmap body size for a 256×256 map:
+Body size for a 256×256 mipmapped map — the body holds the **full mip chain, top level first**, so the sum includes the 256² top level:
 
 ```
 256² + 128² + 64² + 32² + 16² + 8² + 4² + 2² + 1² = 87,381 pixels
-87,381 × 4 = 349,524 bytes (mipmaps only)
+87,381 × 4 = 349,524 bytes (all mip levels, top level included)
 ```
 
-Total file size: 52 + 262,144 + 349,524 = 611,720 — but the observed size is 349,576 (header + all mipmap levels including the top-level 256²). This means mipmapped files store the sum of all levels as the body.
+Total file size: 52 (header) + 349,524 (all levels) = **349,576 bytes**, matching the observed size.
 
 The loader reads only the top-level (`width × height × 4` bytes) and skips any remaining mipmap data.
 
 ## Export
 
+### TGA (grayscale heightmap)
+
 The THM loader normalizes float32 heights to 0–255 grayscale and exports as a 32-bit TGA image:
 
 - **B = G = R** = normalized height (0 = lowest, 255 = highest)
 - **A** = 255
+
+```
+igipy igi2 convert-thm-to-tga   # writes <name>.thm.tga
+```
+
+### JSON (raw height grid)
+
+The THM loader can also export the raw, unnormalized heights as JSON (`<name>.thm.json`):
+
+```
+igipy igi2 convert-thm-to-json
+```
+
+```json
+{
+  "width": 64,
+  "height": 64,
+  "content": [ /* width × height float32 heights, row-major */ ]
+}
+```
+
+`content` is a **flat** row-major list of all `width × height` float32 values (full precision, unnormalized). Reconstruct any cell as `content[row * width + column]`. Only the top-level grid is exported; mipmaps are skipped.

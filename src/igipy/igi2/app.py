@@ -27,8 +27,10 @@ from igipy.igi2.services.mtp_to_json import mtp_to_json
 from igipy.igi2.services.objects_to_json import objects_to_json
 from igipy.igi2.services.olm_to_tga import olm_to_tga
 from igipy.igi2.services.syn_to_json import syn_to_json
+from igipy.igi2.services.thm_to_json import thm_to_json
 from igipy.igi2.services.thm_to_tga import thm_to_tga
 from igipy.igi2.services.tlm_to_tga import tlm_to_tga
+from igipy.igi2.services.tmm_to_json import tmm_to_json
 from igipy.igi2.services.tmm_to_tga import tmm_to_tga
 
 igi2_app = typer.Typer(add_completion=False)
@@ -219,6 +221,22 @@ def igi2_convert_tmm_to_tga(dry: bool = False) -> None:
 
 
 @igi2_app.command(
+    name="convert-thm-to-json",
+    short_help="Convert .thm files from collect source to .json flat float height grids in convert destination",
+)
+def igi2_convert_thm_to_json(dry: bool = False) -> None:
+    _run_convert(converter=thm_to_json, patterns=["*.thm"], dry=dry)
+
+
+@igi2_app.command(
+    name="convert-tmm-to-json",
+    short_help="Convert .tmm files from collect source to .json flat int material-index grids in convert destination",
+)
+def igi2_convert_tmm_to_json(dry: bool = False) -> None:
+    _run_convert(converter=tmm_to_json, patterns=["*.tmm"], dry=dry)
+
+
+@igi2_app.command(
     name="convert-syn-to-json",
     short_help="Convert .syn files from collect source to .json files in convert destination",
 )
@@ -317,13 +335,14 @@ def igi2_convert_mtp_to_json(dry: bool = False) -> None:
 
 @igi2_app.command(
     name="convert-objects-to-json",
-    short_help="[temporary] Export every level objects.qvm to a readable .json scene tree",
+    short_help="[temporary] Export every level objects.qvm to a type-grouped .json registry",
 )
 def igi2_convert_objects_to_json(dry: bool = False) -> None:
-    """Temporary helper: decode each level objects.qvm into a named JSON task tree.
+    """Temporary helper: decode each level objects.qvm into a type-grouped JSON registry.
 
     Reads the declarations to name the positional Task_New values, drops the declarations,
-    and writes the remaining task tree as objects.json. Not part of "convert-all".
+    and writes objects.json as a flat registry grouped by type then keyed by task id, where
+    each object's children are listed by id. Not part of "convert-all".
     """
     _run_convert(converter=objects_to_json, patterns=["objects.qvm"], dry=dry)
 

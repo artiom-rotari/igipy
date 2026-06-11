@@ -1,4 +1,4 @@
-"""Temporary helper: decode a level ``objects.qvm`` into a readable JSON scene tree.
+"""Temporary helper: decode a level ``objects.qvm`` into a type-grouped JSON registry.
 
 An ``objects.qsc`` script (decompiled from ``objects.qvm``) has two phases:
 
@@ -8,8 +8,22 @@ An ``objects.qsc`` script (decompiled from ``objects.qvm``) has two phases:
   calls that build the actual scene graph.
 
 This converter uses the declarations only as a schema to name the positional ``Task_New``
-values, then drops them: the resulting JSON keeps just the task tree, with each object's
-values mapped to their declared field names and child tasks nested under ``children``.
+values, then drops them. Instead of preserving the nested task tree, it **flattens** every
+task (root or nested) into a single registry grouped by type:
+
+```
+{
+  "<Type>": {
+    "<id>": {"id": ..., "type": ..., "label": ..., "fields"|"values": ..., "children": [<id>, ...]}
+  }
+}
+```
+
+Top-level type groups are ordered alphabetically; within each group, objects are ordered by
+ascending task id. ``children`` becomes a flat list of child ids (in source order) rather than
+nested objects, so the whole graph is reachable by id lookup. JSON object keys are always
+strings, so an integer id such as ``3998`` serializes as the quoted key ``"3998"``. If two
+tasks ever share an id within the same type, the last one wins (plain dict assignment).
 """
 
 import json
@@ -93,8 +107,18 @@ def collect_schema(block: qsc.BlockStatement) -> dict[str, list[tuple[str, str]]
     return schema
 
 
-def task_new_to_object(call: qsc.Call, schema: dict[str, list[tuple[str, str]]], serializer: qsc.QSC) -> dict:
-    """Convert a single Task_New call (and its nested children) into a JSON object."""
+def flatten_task(
+    call: qsc.Call,
+    schema: dict[str, list[tuple[str, str]]],
+    serializer: qsc.QSC,
+    accumulator: list[dict],
+) -> object:
+    """Flatten a Task_New call (and its descendants) into ``accumulator``; return its id.
+
+    Each call becomes one object dict appended to ``accumulator``. Child Task_New calls are
+    flattened recursively and referenced by id under the ``children`` key (in source order),
+    rather than nested inline. The returned id lets the parent assemble its children list.
+    """
     task_id = expression_to_value(call.arguments[0], serializer)
     task_type = call.arguments[1].value
     label = call.arguments[2].value
@@ -116,11 +140,12 @@ def task_new_to_object(call: qsc.Call, schema: dict[str, list[tuple[str, str]]],
     else:
         result["values"] = [expression_to_value(expression, serializer) for expression in value_expressions]
 
-    children = [task_new_to_object(child_call, schema, serializer) for child_call in child_calls]
-    if children:
-        result["children"] = children
+    child_ids = [flatten_task(child_call, schema, serializer, accumulator) for child_call in child_calls]
+    if child_ids:
+        result["children"] = child_ids
 
-    return result
+    accumulator.append(result)
+    return task_id
 
 
 def map_values_to_fields(
@@ -157,6 +182,20 @@ def map_values_to_fields(
     return named_fields
 
 
+def task_id_sort_key(task_id: object) -> tuple[int, float, str]:
+    """Order ids numerically when possible, keeping non-numeric ids stable and grouped last.
+
+    Numeric ids (the normal case) sort ascending in the first group; anything else (symbolic
+    names, source-text fallbacks) sorts lexically in a second group so mixed id types never
+    raise a TypeError during sorting.
+    """
+    if isinstance(task_id, bool):
+        return (1, 0.0, str(task_id))
+    if isinstance(task_id, int | float):
+        return (0, float(task_id), "")
+    return (1, 0.0, str(task_id))
+
+
 def objects_to_json(source_io: BytesIO, source_path: Path | None = None) -> tuple[BytesIO, Path | None]:
     target_path: Path | None = source_path.with_suffix(".json") if source_path is not None else None
 
@@ -166,13 +205,24 @@ def objects_to_json(source_io: BytesIO, source_path: Path | None = None) -> tupl
     schema = collect_schema(block)
     serializer = qsc.QSC(content=qsc.BlockStatement(statements=[]))
 
-    roots = [
-        task_new_to_object(call, schema, serializer)
-        for statement in block.statements
-        if (call := statement_to_call(statement)) is not None and call.function == "Task_New"
-    ]
+    accumulator: list[dict] = []
+    for statement in block.statements:
+        call = statement_to_call(statement)
+        if call is not None and call.function == "Task_New":
+            flatten_task(call, schema, serializer, accumulator)
+
+    grouped: dict[str, dict[object, dict]] = {}
+    for task_object in accumulator:
+        grouped.setdefault(task_object["type"], {})[task_object["id"]] = task_object
+
+    registry: dict[str, dict] = {}
+    for task_type in sorted(grouped):
+        objects_by_id = grouped[task_type]
+        registry[task_type] = {
+            task_id: objects_by_id[task_id] for task_id in sorted(objects_by_id, key=task_id_sort_key)
+        }
 
     target_io = BytesIO()
-    target_io.write(json.dumps(roots, indent=2, ensure_ascii=False).encode("utf-8"))
+    target_io.write(json.dumps(registry, indent=2, ensure_ascii=False).encode("utf-8"))
     target_io.seek(0)
     return target_io, target_path

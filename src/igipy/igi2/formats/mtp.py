@@ -4,7 +4,7 @@ from typing import ClassVar, Self
 
 from pydantic import BaseModel, NonNegativeInt
 
-from igipy.igi2.formats.form import FORM, FORMChunk, FORMChunkHeader
+from igipy.core.formats.form import FORM, FORMChunk, FORMChunkHeader
 
 
 def _parse_string_table(content: bytes) -> tuple[int, list[str]]:

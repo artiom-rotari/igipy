@@ -61,7 +61,7 @@ total_file_size = 44 + body_size
 
 ## Material Semantics
 
-Each byte value maps to a `TerrainMaterial` definition in `objects.qsc`. Example from `missions/location1/level1/objects.qsc`:
+Each byte value maps to a `TerrainMaterial` definition in `objects.qsc`. **This mapping is level-specific** — index 3 is "Muddy Road" in `location1/level1` but means something else in another level. Example from `missions/location1/level1/objects.qsc`:
 
 | Index | Material name        | Texture                                |
 |-------|----------------------|----------------------------------------|
@@ -81,7 +81,9 @@ Each `TerrainMaterial` also defines:
 
 ## Export
 
-The TMM loader maps material indices to a fixed color palette and exports as a 32-bit TGA image:
+### TGA (palette-colored material map)
+
+The TMM loader maps material indices to a **fixed, generic color palette for visualization only** — these names are independent of the per-level `TerrainMaterial` definitions above (e.g. index 3 renders as "Tan / Sand" here regardless of what the level actually assigns to it):
 
 | Index | Color   | Typical material |
 |-------|---------|------------------|
@@ -93,3 +95,25 @@ The TMM loader maps material indices to a fixed color palette and exports as a 3
 | 5     | Dark gray | Stone          |
 | 6     | Forest green | Vegetation  |
 | 7     | Sienna  | Mud              |
+
+```
+igipy igi2 convert-tmm-to-tga   # writes <name>.tmm.tga
+```
+
+### JSON (raw material-index grid)
+
+The TMM loader can also export the raw material indices as JSON (`<name>.tmm.json`):
+
+```
+igipy igi2 convert-tmm-to-json
+```
+
+```json
+{
+  "width": 64,
+  "height": 64,
+  "content": [ /* width × height uint8 material indices (0–7), row-major */ ]
+}
+```
+
+`content` is a **flat** row-major list of all `width × height` integer values. Reconstruct any cell as `content[row * width + column]`.

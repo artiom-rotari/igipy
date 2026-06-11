@@ -94,3 +94,8 @@ class THM(FileModel):
         bgra[:, 3] = 255
 
         return bgra.tobytes()
+
+    @property
+    def content_values(self) -> list[float]:
+        """Flat, row-major list of all float32 height values (top-level grid only)."""
+        return np.frombuffer(self.content, dtype="<f4").tolist()

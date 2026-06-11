@@ -23,7 +23,7 @@ holding a texture atlas with glyph images and metadata that maps character codes
 ├─────────────────────────────────────┤
 │ TEXH Chunk — Texture header         │
 ├─────────────────────────────────────┤
-│ BODY Chunk — RGBA texture atlas     │
+│ BODY Chunk — BGRA texture atlas     │
 └─────────────────────────────────────┘
 ```
 

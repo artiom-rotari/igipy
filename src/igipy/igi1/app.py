@@ -1,3 +1,4 @@
+import struct
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
@@ -11,6 +12,7 @@ from igipy.core.services.res_to_zip import res_to_zip
 from igipy.core.services.tex_to_tga import tex_to_tga
 from igipy.core.services.wav_to_wav import wav_to_wav
 from igipy.core.utils import convert
+from igipy.igi1.formats.iff import IFF
 from igipy.igi1.services.collect import collect
 
 igi1_app = typer.Typer(add_completion=False)
@@ -105,6 +107,33 @@ def igi1_convert_wav_to_wav(dry: bool = False) -> None:
         patterns=["*.wav"],
         dry=dry,
     )
+
+
+@igi1_app.command(
+    name="validate-iff",
+    short_help="Parse all .iff skeletal-animation files from the collect source and report results",
+)
+def igi1_validate_iff() -> None:
+    config = Config.model_validate_file()
+    parsed = 0
+    failed = 0
+
+    for source_stream, source_path, _ in config.igi1.read_all_iff():
+        try:
+            animation_library = IFF.model_validate_stream(source_stream)
+        except (ValueError, struct.error) as error:
+            typer.secho(f"FAIL {source_path}: {error}", fg="red")
+            failed += 1
+            continue
+
+        typer.secho(
+            f"OK   {source_path}: {animation_library.bone_count} bones, "
+            f"{len(animation_library.animations)} animations",
+            fg="green",
+        )
+        parsed += 1
+
+    typer.secho(f"Parsed {parsed}, failed {failed}", fg="cyan")
 
 
 # noinspection DuplicatedCode

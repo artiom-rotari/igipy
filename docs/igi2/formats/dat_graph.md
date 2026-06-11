@@ -2,7 +2,7 @@
 
 # DAT Graph Format
 
-DAT Graph files (`graph*.dat`) store AI navigation graphs used for pathfinding. Each file defines a set of nodes with 3D positions and edges connecting them. There are 182 files across all levels. Each graph file corresponds to an `AIGraph` task in the level's `objects.qsc` — the numeric suffix in the filename is the task ID (e.g. `graph1.dat` corresponds to `Task_New(1, "AIGraph", "City", ...)`).
+DAT Graph files (`graph*.dat`) store AI navigation graphs used for pathfinding. Each file defines a set of nodes with 3D positions and edges connecting them. There are 182 files across all levels. Each graph file corresponds to an `AIGraph` task in the level's `objects.qsc` (the decompiled form of the on-disk `objects.qvm`) — the numeric suffix in the filename is the task ID (e.g. `graph1.dat` corresponds to `Task_New(1, "AIGraph", "City", ...)`).
 
 ## Correlation with objects.qsc
 

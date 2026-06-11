@@ -23,6 +23,6 @@ from `igipy igi1 extensions-of-collect` (the collected source). Total: 41711 fil
 | .lmp         | 14    | Unknown / research needed |
 | .fnt         | 11    | Must create converter   |
 | .hmp         | 6     | Unknown / research needed |
-| .iff         | 6     | Must create converter   |
+| .iff         | 6     | Documented — parser (igi1 validate-iff) |
 | .pic         | 5     | Can be converted to tga |
 | .avi         | 5     | Copy as is              |

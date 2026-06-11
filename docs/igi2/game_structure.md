@@ -56,14 +56,14 @@ This page documents how files are organized in the IGI2 game directory and the t
 
 ### Mission Numbering
 
-The game has 19 single-player missions across 3 locations plus 7 multiplayer maps:
+The game has 19 single-player missions across 3 locations plus 6 multiplayer maps (25 levels with an `objects.qsc` in total):
 
 | Mission IDs | Path | Description |
 |-------------|------|-------------|
 | 11–17 | `location1/level1–level7` | 7 missions (Location 1) |
 | 21–26 | `location2/level1–level6` | 6 missions (Location 2) |
 | 31–36 | `location3/level1–level6` | 6 missions (Location 3) |
-| 1–5, 8 | `multiplayer/*` | 7 multiplayer maps |
+| 1–5, 8 | `multiplayer/*` | 6 multiplayer maps |
 
 Mission IDs are defined in `missions/igi2.qvm` → decompiles to `DefineMissionListItem(11..36)`.
 
@@ -127,57 +127,13 @@ missions/location1/level1/
 
 ## QSC Script Types
 
-QSC files are decompiled from QVM bytecode. They serve different purposes depending on location:
+QSC files are decompiled from QVM bytecode and serve different purposes depending on location —
+global config, weapons, AI, sounds, menus, physics objects, and the per-level scene graph
+(`objects.qsc`). The full category catalog, with the contents and representative calls of each, is
+documented separately:
 
-### Global Scripts
-
-| File | Purpose |
-|------|---------|
-| `config.qsc` | Game settings — version, key bindings, mouse sensitivity |
-| `lod.qsc` | LOD distance thresholds per model (`ModelLODSettings`) |
-| `humanplayer.qsc` | Player physics — movement speed, jump velocity, peek distance |
-| `material.qsc` | Material definitions — physics properties, sound effects, visual effects |
-| `weapon.qsc` | Weapon type definitions with tags and animation parameters |
-| `ammo.qsc` | Ammo types — tracer colors, shop prices, casing models |
-| `animtrigger.qsc` | Animation trigger definitions |
-| `igi2.qsc` | Mission list — `DefineMissionListItem(11..36)` |
-
-### Per-Level Scripts
-
-| File | Purpose |
-|------|---------|
-| `objects.qsc` | **Main level scene graph** — declares all object types via `Task_DeclareParameters`, then instantiates the full scene via nested `Task_New` calls. Contains terrain, buildings, lights, soldiers, doors, forests, water, cameras, AI graphs, objectives, cutscenes. Largest file per level (up to 285 KB). |
-| `mission.qsc` | One-liner: `DefineMission(id, ...)` mapping mission ID to file paths |
-| `sounds/sounds.qsc` | Sound effect definitions for the level |
-
-### AI Scripts (`ai/` directory)
-
-| Pattern | Purpose | Example |
-|---------|---------|---------|
-| `NNN.qsc` | Individual soldier behavior — handles events (IDLE, CREATE) with actions like `AIAction_WalkToNode`, `AIAction_LookAtNode` | `500.qsc`: walk to node 100, look at node 69 |
-| `Squad_NNN.qsc` | Squad coordination — checks squad state, area triggers, dispatches patrols | `Squad_700.qsc`: checks area activation, assigns patrol routes |
-
-### objects.qsc Object Types
-
-The `objects.qsc` file uses `Task_DeclareParameters` to define these object types (among others):
-
-| Object type | Key fields |
-|-------------|------------|
-| `Terrain` | Position, world width/height, LOD parameters |
-| `TerrainMap` | ID → `heightmapNNN.*`, grid dimensions, world coverage |
-| `TerrainMaterial` | Material ID (0–7), texture paths, UV scale |
-| `Forest` | Position, model, area size, tree count, scale ranges, LOD cutoff, wind LODs |
-| `Water` | Position, size, UV scale, cubemap, texture paths |
-| `AIGraph` | Graph position, Graphdata (node_count, capacity, edge_count), cover offsets, link params |
-| `EditRigidObj` | Position, orientation, model reference |
-| `Building` | Position, orientation, model, inside ambient color |
-| `HumanSoldier` | Position, gamma, model, team, weapon script |
-| `HumanAI` | AI type, animation type, graph ID |
-| `AISquad` | Formation, squad type, alarm/gun links |
-| `Door` | Start/stop positions, model, open time, pickable |
-| `HumanPlayer` | Spawn position, gamma, model, team, weapons |
-| `CutScene` | Camera, timing, viewport, expressions |
-| `LevelFlow` | Start time, complete/failed expressions, timer |
+- **[QVM Scripts](formats/qvm.md)** — categories of QVM/QSC files and what each one defines.
+- **[Level](level.md)** — the `objects.qsc` scene graph and its object-type declarations in detail.
 
 ## Task ID File Naming Convention
 
@@ -236,7 +192,7 @@ Three data sources are available in `.ignore/` for research:
 | Source | Contents | File count |
 |--------|----------|------------|
 | `.ignore/game/` | Raw copy of game install directory — original `.res` archives and loose files exactly as installed | ~200 .res + loose files |
-| `.ignore/igi2_collected.zip` | All `.res` archives exported (extracted) — files flattened from archives into their logical paths | 52,501 files |
+| `.ignore/igi2_collected.zip` | All `.res` archives exported (extracted) — files flattened from archives into their logical paths | 52,540 files |
 | `.ignore/igi2_converted.zip` | Known formats converted to readable formats | 9,347 files |
 
 ### Conversion Mapping (collected → converted)
@@ -244,7 +200,7 @@ Three data sources are available in `.ignore/` for research:
 | Source format | Converted to | Count |
 |---------------|-------------|-------|
 | `.qvm` | `.qsc` (decompiled script) | 1,786 |
-| `.tex` | `.tga` (image) | 5,394 → 5,904 .tga |
+| `.tex` | `.tga` (image) | 5,369 → 5,904 .tga |
 | `.spr` | `.tga` (image) | 257 → included in .tga count |
 | `.pic` | `.tga` (image) | 3 → included in .tga count |
 | `.fnt` | `.zip` (texture + BMFont) | 23 |
@@ -256,12 +212,12 @@ Three data sources are available in `.ignore/` for research:
 |-----------|-------|----------|-------------|
 | `.olm` | 32,532 | lightmaps/, models/ | Object lightmaps |
 | `.mef` | 7,609 | models/ | 3D mesh models |
-| `.tex` | 5,394 | textures/ | Textures (ILFF container) |
+| `.tex` | 5,369 | textures/ | Textures (ILFF container) |
 | `.qvm` | 1,786 | ai/, root level | Compiled scripts |
 | `.wav` | 1,634 | sounds/ | Audio (including ADPCM) |
 | `.iff` | 1,244 | common/anims/ | Animation data |
 | `.mp3` | 615 | sounds/ | Music and voice lines |
-| `.dat` | 429 | level root, graphs/ | Forest (109), graph (182), graphcover (138) |
+| `.dat` | 461 | level root, graphs/ | Forest (109), graph (182), graphcover (138), mtp (32) |
 | `.syn` | 369 | sounds/per-language/ | Lip-sync envelopes |
 | `.spr` | 257 | sprites/, weapons/ | Sprites (ILFF container) |
 | `.bmp` | 192 | envmaps/ | Environment cubemap faces |
@@ -271,6 +227,7 @@ Three data sources are available in `.ignore/` for research:
 | `.tmm` | 50 | heightmaps/ | Terrain material maps |
 | `.tlm` | 50 | heightmaps/ | Terrain light maps |
 | `.json` | 42 | language/ | Translation strings (from .res) |
+| `.mtp` | 32 | level root, common/ | Model→texture tables (FORM container) |
 | `.fnt` | 23 | fonts/ | Bitmap font files |
 | `.pic` | 3 | menusystem/ | Pictures (ILFF container) |
 

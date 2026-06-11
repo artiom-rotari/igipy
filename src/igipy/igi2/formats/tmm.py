@@ -89,3 +89,8 @@ class TMM(FileModel):
         """Palette-colored BGRA pixel data."""
         indices = np.frombuffer(self.content, dtype=np.uint8)
         return MATERIAL_PALETTE[indices].tobytes()
+
+    @property
+    def content_values(self) -> list[int]:
+        """Flat, row-major list of all uint8 material-index values."""
+        return np.frombuffer(self.content, dtype=np.uint8).tolist()

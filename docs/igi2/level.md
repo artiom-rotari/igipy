@@ -6,7 +6,7 @@ An IGI 2 level's scene graph lives in its `objects.qsc` file (decompiled from `o
 
 ## objects.qsc — Scene Graph
 
-Every level contains an `objects.qsc` file (decompiled from `objects.qvm`) that defines the complete scene graph: terrain, buildings, lights, soldiers, doors, forests, water, cameras, AI graphs, objectives, cutscenes, and more. It is the largest file per level (up to 404 KB decompiled).
+Every level contains an `objects.qsc` file (decompiled from `objects.qvm`) that defines the complete scene graph: terrain, buildings, lights, soldiers, doors, forests, water, cameras, AI graphs, objectives, cutscenes, and more. It is the largest file per level (102–395 KB decompiled).
 
 ### File Structure
 
@@ -33,7 +33,7 @@ An `objects.qsc` file has two sections:
 └──────────────────────────────────────────────────┘
 ```
 
-**Declarations** define the parameter schema for each object type. They are identical across all 25 levels. Parameters are positional — each `Task_New` call passes values in the same order as the declaration.
+**Declarations** define the parameter schema for each object type. Each level declares only the object types it actually uses (43–65 per level), so the declaration block differs between levels; the parameter schema for a given type, however, is identical wherever it is declared. Parameters are positional — each `Task_New` call passes values in the same order as the declaration.
 
 **Scene Tree** is a hierarchy of `Task_New(id, "Type", "Name", ...params, ...children)` calls. Every object has a unique integer ID, a type string, an optional name string, positional parameter values, and zero or more child objects.
 
@@ -147,9 +147,14 @@ Declarations use these types to describe each parameter:
 | Lensflare | 24 | Lighting |
 | Other (29 types) | ≤23 each | Various |
 
+> **Forest count note:** the `Forest` value (104) counts `Forest` task instances in the scene graphs
+> across all 25 levels — distinct from the 109 `forest_*.dat` files on disk (67 unique after
+> cross-location deduplication; see [DAT Forest](formats/dat_forest.md)). Each task references one
+> `forest_<id>.dat`, but files are shared and duplicated across levels.
+
 ### Declarations Reference
 
-All 88 object types declared via `Task_DeclareParameters`. Grouped by category.
+All 89 object types declared via `Task_DeclareParameters` across the 25 levels (43–65 appear in any single level). Grouped by category.
 
 ---
 
@@ -157,7 +162,7 @@ All 88 object types declared via `Task_DeclareParameters`. Grouped by category.
 
 ##### Terrain (14 params)
 
-Root terrain object. One per level (23 total across SP + MP).
+Root terrain object. At most one per level (23 across the 25 levels — some indoor levels have none).
 
 | # | Parameter | Type | Description |
 |---|-----------|------|-------------|

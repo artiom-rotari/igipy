@@ -1,0 +1,344 @@
+//------------------------------------------------
+//--- 010 Editor Binary Template
+//
+//      File: iff.bt
+//   Authors: igipy
+//   Purpose: Parse IGI 1 .iff skeletal-animation files (EA IFF-85 / FORM)
+//  Category: Game
+// File Mask: *.iff
+//  ID Bytes: 46 4F 52 4D  // "FORM"
+//   History:
+//     1.0  Initial: full field-level decode (skeleton + every animation clip).
+//
+//  Format notes (see docs/igi1/formats/iff.md):
+//   - Chunk SIZES are big-endian (EA IFF); chunk PAYLOADS are little-endian (x86).
+//   - The grouping forms BOBJ and BOAL under-report their size by 12 bytes, so
+//     their sizes are IGNORED here; children are walked by their own sizes and
+//     tile to EOF. BOBH and BOAN form sizes ARE reliable.
+//------------------------------------------------
+
+LittleEndian();
+
+// ---- Inline type aliases (self-contained; no external includes) ----
+typedef ubyte U1;
+typedef uint   U4;
+typedef int    S4;
+typedef float  F4;
+typedef char   CH;
+
+// ---- EA IFF headers ------------------------------------------------
+
+// Leaf chunk header: 4-byte tag + big-endian size. Switches back to
+// little-endian so the chunk body reads as native x86 data.
+typedef struct
+{
+    BigEndian();
+    CH tag[4];
+    U4 size;
+    LittleEndian();
+} CHUNK_HEADER <read=Read_CHUNK_HEADER>;
+
+// FORM container header: "FORM" + big-endian size + 4-byte form type.
+typedef struct
+{
+    BigEndian();
+    CH form[4];
+    U4 size;
+    LittleEndian();
+    CH type[4];
+} FORM_HEADER <read=Read_FORM_HEADER>;
+
+string Read_CHUNK_HEADER(CHUNK_HEADER &h)
+{
+    local string s;
+    SPrintf(s, "%s  (%u bytes)", h.tag, h.size);
+    return s;
+}
+
+string Read_FORM_HEADER(FORM_HEADER &h)
+{
+    local string s;
+    SPrintf(s, "FORM %s  (%u bytes)", h.type, h.size);
+    return s;
+}
+
+// ---- Generic fallback chunk ---------------------------------------
+// Not used by the walk below (every chunk is typed), but kept as a handy
+// fallback: drop it in place of a typed chunk to dump an unrecognized leaf's
+// raw payload. Sizes in this format are always even, so EA IFF word-alignment
+// padding is a no-op; handled anyway.
+typedef struct
+{
+    CHUNK_HEADER header;
+    if (header.size > 0)
+        U1 data[header.size];
+    if (header.size & 1)
+        U1 pad;
+} RAW_CHUNK <read=Read_RAW_CHUNK>;
+
+string Read_RAW_CHUNK(RAW_CHUNK &c)
+{
+    return Read_CHUNK_HEADER(c.header);
+}
+
+// ---- Skeleton chunks (inside FORM BOBH) ---------------------------
+
+// Captured from BOSH; sizes PLST=bone_count*4 and TLST=bone_count*12, and the
+// per-clip rotation-track count, all depend on it.
+local int g_bone_count = 0;
+
+// BOSH (8 bytes) — skeleton header.
+typedef struct
+{
+    CHUNK_HEADER header;  // "BOSH", size 8
+    S4 object_id;         // matches the file number (000.iff -> 0, ...)
+    S4 bone_count;        // 33 (human) or 56 (005.iff)
+} BOSH <read=Read_BOSH>;
+
+string Read_BOSH(BOSH &b)
+{
+    local string s;
+    SPrintf(s, "object_id %d, bone_count %d", b.object_id, b.bone_count);
+    return s;
+}
+
+// PLST (bone_count*4 bytes) — parent bone index per bone (-1 = root).
+typedef struct (int n)
+{
+    CHUNK_HEADER header;  // "PLST"
+    S4 parent_index[n];
+} PLST;
+
+// TLST (bone_count*12 bytes) — bind-pose translation per bone.
+typedef struct
+{
+    F4 x;
+    F4 y;
+    F4 z;
+} BIND_TRANSLATION <read=Read_BIND_TRANSLATION>;
+
+string Read_BIND_TRANSLATION(BIND_TRANSLATION &t)
+{
+    local string s;
+    SPrintf(s, "x %f  y %f  z %f", t.x, t.y, t.z);
+    return s;
+}
+
+typedef struct (int n)
+{
+    CHUNK_HEADER header;  // "TLST"
+    BIND_TRANSLATION bind_translation[n];
+} TLST;
+
+// ---- Animation chunks (inside FORM BOAL / BOAN) -------------------
+
+// BALH (8 bytes) — animation-list header.
+typedef struct
+{
+    CHUNK_HEADER header;        // "BALH"
+    S4 animation_count;         // number of BOAN clips that follow
+    S4 animation_id_capacity;   // one past the highest animation_id
+} BALH <read=Read_BALH>;
+
+string Read_BALH(BALH &b)
+{
+    local string s;
+    SPrintf(s, "animation_count %d, id_capacity %d", b.animation_count, b.animation_id_capacity);
+    return s;
+}
+
+// A keyframe-count leaf (BOTH / BORH / BOEH): CHUNK_HEADER + int32 count.
+typedef struct
+{
+    CHUNK_HEADER header;
+    S4 count;
+} COUNT_CHUNK <read=Read_COUNT_CHUNK>;
+
+string Read_COUNT_CHUNK(COUNT_CHUNK &c)
+{
+    local string s;
+    SPrintf(s, "%s  count %d", c.header.tag, c.count);
+    return s;
+}
+
+// BOAH (12 bytes) — clip header.
+typedef struct
+{
+    CHUNK_HEADER header;  // "BOAH"
+    F4 duration;          // time units (~ last keyframe time)
+    U4 flags;             // bit 31 (0x80000000) = looping
+    U4 animation_id;      // global animation index (script PlayAnimation id)
+} BOAH <read=Read_BOAH>;
+
+string Read_BOAH(BOAH &b)
+{
+    local string s;
+    SPrintf(s, "id %u, duration %.0f, loop %s", b.animation_id, b.duration,
+            (b.flags & 0x80000000) ? "yes" : "no");
+    return s;
+}
+
+// BOTD record (40 bytes) — root-translation keyframe.
+typedef struct
+{
+    F4 position_x;
+    F4 position_y;
+    F4 position_z;
+    F4 time;
+    F4 tangent_in_x;
+    F4 tangent_in_y;
+    F4 tangent_in_z;
+    F4 tangent_out_x;
+    F4 tangent_out_y;
+    F4 tangent_out_z;
+} TRANSLATION_KEYFRAME <read=Read_TRANSLATION_KEYFRAME>;
+
+string Read_TRANSLATION_KEYFRAME(TRANSLATION_KEYFRAME &k)
+{
+    local string s;
+    SPrintf(s, "t %.0f  pos (%f, %f, %f)", k.time, k.position_x, k.position_y, k.position_z);
+    return s;
+}
+
+typedef struct (int count)
+{
+    CHUNK_HEADER header;  // "BOTD"
+    if (count > 0)
+        TRANSLATION_KEYFRAME keyframe[count];
+} BOTD;
+
+// BORD record (52 bytes) — bone-rotation keyframe (quaternion + 2 control quats).
+typedef struct
+{
+    F4 rotation_x;
+    F4 rotation_y;
+    F4 rotation_z;
+    F4 rotation_w;
+    F4 time;
+    F4 control_b_x;
+    F4 control_b_y;
+    F4 control_b_z;
+    F4 control_b_w;
+    F4 control_c_x;
+    F4 control_c_y;
+    F4 control_c_z;
+    F4 control_c_w;
+} ROTATION_KEYFRAME <read=Read_ROTATION_KEYFRAME>;
+
+string Read_ROTATION_KEYFRAME(ROTATION_KEYFRAME &k)
+{
+    local string s;
+    SPrintf(s, "t %.0f  quat (%f, %f, %f, %f)", k.time,
+            k.rotation_x, k.rotation_y, k.rotation_z, k.rotation_w);
+    return s;
+}
+
+typedef struct (int count)
+{
+    CHUNK_HEADER header;  // "BORD"
+    if (count > 0)
+        ROTATION_KEYFRAME keyframe[count];
+} BORD;
+
+// One bone's rotation track: BORH (count) followed by BORD (count records).
+typedef struct
+{
+    COUNT_CHUNK borh;     // "BORH"
+    BORD bord(borh.count);
+} ROTATION_TRACK <read=Read_ROTATION_TRACK>;
+
+string Read_ROTATION_TRACK(ROTATION_TRACK &t)
+{
+    local string s;
+    SPrintf(s, "%d keyframe(s)", t.borh.count);
+    return s;
+}
+
+// BOED record (24 bytes) — timed animation event.
+typedef struct
+{
+    U4 event_id;          // 1000..1054 resolve via animtrigger.qvm
+    F4 time;
+    F4 parameter;
+    F4 position_x;
+    F4 position_y;
+    F4 position_z;
+} ANIMATION_EVENT <read=Read_ANIMATION_EVENT>;
+
+string Read_ANIMATION_EVENT(ANIMATION_EVENT &e)
+{
+    local string s;
+    SPrintf(s, "id %u  t %.0f", e.event_id, e.time);
+    return s;
+}
+
+typedef struct (int count)
+{
+    CHUNK_HEADER header;  // "BOED" (size 0 when count == 0)
+    if (count > 0)
+        ANIMATION_EVENT event[count];
+} BOED;
+
+// One animation clip: FORM BOAN. Its size is reliable, but children are read
+// by their own counts so it tiles correctly regardless.
+typedef struct (int nbones)
+{
+    FORM_HEADER form;     // "BOAN"
+    BOAH boah;
+    COUNT_CHUNK both;     // "BOTH" — translation keyframe count
+    BOTD botd(both.count);
+    local int bone;
+    for (bone = 0; bone < nbones; bone++)
+        ROTATION_TRACK rotation_track;
+    COUNT_CHUNK boeh;     // "BOEH" — event count
+    BOED boed(boeh.count);
+} BOAN <read=Read_BOAN>;
+
+string Read_BOAN(BOAN &b)
+{
+    return Read_BOAH(b.boah);
+}
+
+// ---- Container walk -----------------------------------------------
+
+// Root: FORM BOBJ. Its declared size is unreliable (12-byte quirk) -> ignore it.
+SetBackColor(cLtGreen);
+FORM_HEADER bobj;
+Assert(bobj.form == "FORM" && bobj.type == "BOBJ", "Expected root FORM BOBJ");
+
+// Skeleton: FORM BOBH (BOSH, PLST, TLST in that fixed order).
+SetBackColor(cLtBlue);
+FORM_HEADER bobh;
+Assert(bobh.type == "BOBH", "Expected FORM BOBH");
+
+BOSH bosh;
+Assert(bosh.header.tag == "BOSH", "Expected BOSH chunk");
+g_bone_count = bosh.bone_count;
+
+PLST plst(g_bone_count);
+Assert(plst.header.tag == "PLST" && plst.header.size == g_bone_count * 4, "Bad PLST");
+
+TLST tlst(g_bone_count);
+Assert(tlst.header.tag == "TLST" && tlst.header.size == g_bone_count * 12, "Bad TLST");
+
+// Animations: FORM BOAL. Its declared size is unreliable too -> ignore it.
+SetBackColor(cLtGreen);
+FORM_HEADER boal;
+Assert(boal.type == "BOAL", "Expected FORM BOAL");
+
+SetBackColor(cLtYellow);
+BALH balh;
+Assert(balh.header.tag == "BALH", "Expected BALH chunk");
+
+// One FORM BOAN per animation clip. BOAN sizes are reliable; walk to EOF.
+local int clip_index = 0;
+while (!FEof() && ReadString(FTell(), 4) == "FORM")
+{
+    SetBackColor((clip_index & 1) ? cLtPurple : cLtAqua);
+    BOAN boan(g_bone_count);
+    Assert(boan.form.type == "BOAN", "Expected FORM BOAN");
+    clip_index++;
+}
+
+Assert(clip_index == balh.animation_count, "Clip count != BALH.animation_count");
+Assert(FEof(), "Parse error: expected end of file after the last BOAN");

@@ -2,7 +2,7 @@
 
 # DAT Forest Format
 
-DAT Forest files (`forest_*.dat`) store vegetation instance placement data — positions, rotations, scales, and pre-baked light colors for trees and bushes in each level. There are 109 files total (67 unique after deduplication across locations). Each file corresponds to a `Forest` task in the level's `objects.qsc` — the numeric suffix in the filename is the task ID (e.g. `forest_2540.dat` corresponds to `Task_New(2540, "Forest", ...)`).
+DAT Forest files (`forest_*.dat`) store vegetation instance placement data — positions, rotations, scales, and pre-baked light colors for trees and bushes in each level. There are 109 files total (67 unique after deduplication across locations); this on-disk file count is distinct from the 104 `Forest` scene-graph task instances counted across the 25 levels in [level.md](../level.md). Each file corresponds to a `Forest` task in the level's `objects.qsc` (the decompiled form of the on-disk `objects.qvm`) — the numeric suffix in the filename is the task ID (e.g. `forest_2540.dat` corresponds to `Task_New(2540, "Forest", ...)`).
 
 ## Correlation with objects.qsc
 

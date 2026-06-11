@@ -2,7 +2,7 @@
 
 # DAT Graphcover Format
 
-DAT Graphcover files (`graphcover*.dat`) store AI cover and visibility data for navigation graphs. Each file is an ILFF container (the standard IGI2 container format) with content type `AICC`. There are 138 files across all levels. Graphcover files share their numeric suffix with the corresponding `graph*.dat` file — both derive from the same `AIGraph` task ID in `objects.qsc`. Not every AIGraph has a graphcover file (138 graphcover vs 182 graph files).
+DAT Graphcover files (`graphcover*.dat`) store AI cover and visibility data for navigation graphs. Each file is an ILFF container (the standard IGI2 container format) with content type `AICC`. There are 138 files across all levels. Graphcover files share their numeric suffix with the corresponding `graph*.dat` file — both derive from the same `AIGraph` task ID in `objects.qsc` (the decompiled form of the on-disk `objects.qvm`). Not every AIGraph has a graphcover file (138 graphcover vs 182 graph files).
 
 ## Location
 
@@ -35,6 +35,10 @@ missions/location*/level*/graphs/graphcover*.dat
 │   (144 bytes)                        │
 └──────────────────────────────────────┘
 ```
+
+> Byte sizes in the diagram are **chunk content** sizes only. On disk each chunk is preceded by the
+> standard 16-byte ILFF chunk header, so an `AICN` node occupies 160 bytes total and the `AICH`
+> header 24 bytes — this is why the empty-file size below is computed with a 16-byte header per chunk.
 
 Each chunk follows the standard ILFF chunk layout:
 

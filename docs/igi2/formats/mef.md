@@ -5,7 +5,8 @@
 MEF files store 3D mesh models for characters, objects, buildings, and vehicles. They are located in `models/`
 directories inside `.res` archives and use IGI's ILFF container format with content type `OCEM` (MECO reversed). Two
 structural variants exist: **standard** (7,526 files) with full render mesh data in three model types (0, 1, 3), and *
-*SEMS** (82 files) containing only a simplified collision mesh.
+*SEMS** (82 files) containing only a simplified collision mesh. These 7,608 valid ILFF/OCEM containers (7,526 + 82),
+plus one non-ILFF file (`menusystem/models/minefield.mef`), make up the 7,609 `.mef` files on disk.
 
 ## Structure Overview
 
@@ -90,6 +91,36 @@ MANB=BNAM, SEMS=SMES, XTVS=SVTX, CAFS=SFAC, EGDE=EDGE.
 | Has WOLG        | 106 files    | Never               | 885 files                 |
 | Has HPRM        | 178 files    | 37 files            | Never                     |
 | Description     | Static props | Characters/vehicles | Buildings/terrain objects |
+
+### Render method per model type (from `igi2.exe`)
+
+The engine selects a named **RenderMode draw-method** per mesh class. These method names are
+registered at runtime inside `igi2.exe` (string `RenderMode: Failed to create new method '%s'`, 56
+methods total) and map 1:1 to `HSEM.model_type`:
+
+| `model_type`      | Engine draw method  | Vertex source / lighting                                            |
+|-------------------|---------------------|---------------------------------------------------------------------|
+| 0 — Static        | `DrawRigidMesh`     | `XTRVItem0` (pos+normal+uv); dynamic per-vertex lighting            |
+| 1 — Skeletal      | `DrawBoneMesh`      | `XTRVItem1` (+bone weight/index); skinned, dynamic lighting         |
+| 3 — Building      | `DrawLightmapMesh`  | `XTRVItem3` (pos+uv+lightmap-uv); baked lightmap, no runtime N·L     |
+
+Related mesh/object methods in the same registry: `DrawSplineMesh` (spline geometry), `DrawForest`
+(vegetation), `PolyListDynCubeObjPrimitive` (cube/env-map **reflective** objects), `UpdateMesh` /
+`LoadModel` / `ChangeModel`, plus the special animated `RotorPrimitive` / `AfterburnerPrimitive`.
+The terrain/water methods `DrawTerrain` and `DrawWater` are the only ones that use the embedded
+`vs.1.0` vertex shaders — see [research/shaders.md](../research/shaders.md). The three mesh methods
+above run on the **fixed-function** T&L pipeline (object UVs come straight from the XTRV vertex
+buffer; `RenderModeUVFromGenericUV`/`GenericUVFromRenderModeUV` is the engine's converter between
+stored "generic" UVs and procedural terrain UVs).
+
+### Two distinct "material" layers
+
+A MEF participates in two unrelated material systems — do not conflate them:
+
+| Layer                     | Source                                  | MEF link                              | Purpose                                          |
+|---------------------------|-----------------------------------------|---------------------------------------|--------------------------------------------------|
+| **Physical / surface**    | `MATERIAL/material.qvm` (33 GameMaterials: Ground, Wood, Glass, Concrete, Flesh…) | `TAMC` collision-material chunk indexes into it | Footstep sounds, bullet-impact decals, penetration, knife hits — **gameplay/audio/FX, not appearance** |
+| **Render appearance**     | Draw-method above + `<level>.mtp`/`.dat` texture table | `DNER.group_index` → texture list (see [dat_mtp.md](dat_mtp.md)) | Per-draw-group diffuse texture, transparency (from texture alpha), optional env-map reflection |
 
 ## HSEM — Mesh Header
 
@@ -347,7 +378,7 @@ chunk.
 
 ```
 Offset          Size              Type       Field
-0               bone_count        byte[]     Bone type flags (one per bone)
+0               bone_count        byte[]     BFS-ordered child counts (one per bone)
 bone_count      1                 byte       Padding (0x00)
 bone_count + 1  bone_count * 12   float3[]   Rest-pose offsets (3 floats per bone)
 ```
@@ -364,8 +395,11 @@ The 31-bone skeleton is the standard humanoid skeleton (237 files). The single 4
 `common/models/005_01_1.mef` — the **first-person hands viewmodel** (prefix `005` = Player/Misc; see
 [model naming](../model_naming.md)); its skeleton is the detailed first-person hand rig (both arms,
 both hands, and per-finger bones — see the 47-bone names table below). The 28-bone skeleton covers
-the remaining 2 files. Bone type flags match IFF animation types (0 = end effector, 1 = rotation,
-2 = full transform, 3 = position + rotation).
+the remaining 2 files. The leading bytes are **BFS-ordered child counts** (out-degree per bone),
+identical to the IFF animation REIH chunk — the parent index of each bone is reconstructed from
+them (the sum of all child counts equals `bone_count − 1`). See
+[IFF § BFS Child Counts](iff.md) for the reconstruction algorithm and `REIHChunk.bones_parents`
+in `igi2/formats/common.py`.
 
 ## MANB — Bone Names (Type 1 Only)
 

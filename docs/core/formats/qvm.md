@@ -52,12 +52,11 @@ All fields are little-endian.
 | 52     | uint32 | unknown_1               | Always 0                             |
 | 56     | uint32 | unknown_2               | Always 0                             |
 
-Bytes 60–63 are zero padding (not part of the header struct). Data sections begin at offset 64.
+Bytes 60–63 are not part of the header struct, and data sections always begin at offset 64. What those 4 bytes hold is version-dependent: in version 7 (IGI 2) they are zero padding; in version 5 (IGI 1) they may instead hold a `footer_data_offset` (see below).
 
 ### Version 5 Footer
 
-Version 5 files (IGI 1) may have an additional uint32 at offset 60 — a `footer_data_offset` — before the padding. This
-field is absent in version 7.
+Version 5 files (IGI 1) may use bytes 60–63 for an additional uint32 — a `footer_data_offset` — instead of zero padding. This field is absent in version 7, where those bytes are always zero.
 
 ## Variable Pool
 

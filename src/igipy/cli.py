@@ -6,10 +6,12 @@ from .config import Config
 from .core.app import core_app
 from .igi1.app import igi1_app
 from .igi2.app import igi2_app
+from .igix.app import igix_app
 
 app = typer.Typer(add_completion=False)
 app.add_typer(igi1_app, name="igi1", short_help="Convertors for IGI 1 game")
 app.add_typer(igi2_app, name="igi2", short_help="Convertors for IGI 2 game")
+app.add_typer(igix_app, name="igix", short_help="Convertors for early IGI 2 (igix) resources")
 app.add_typer(core_app, name="core", short_help="Core shared utilities")
 
 

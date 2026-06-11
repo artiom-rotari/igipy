@@ -316,6 +316,8 @@ entries spread across many time offsets.
 
 Present in 1,090 of 1,244 files (87.5%). Each attachment is 80 bytes.
 
+> **Note:** the IFF `ATTA` chunk is **not** the same layout as the MEF `ATTA` chunk despite the shared FourCC. The IFF entry is 80 bytes and stores orientation as quaternions with `0xABABABAB` as the "no bone" sentinel; the MEF entry (see [MEF](mef.md)) is 72 bytes and stores orientation as a 3×3 matrix with `-1` as the "world space" sentinel.
+
 ```
 Offset  Size  Type      Field
 0       16    char[16]  Attachment name (null-padded ASCII)
@@ -356,7 +358,7 @@ Two distinct skeleton types exist across all 1,244 files:
 |------------------|---------------------------------------|--------------------------------------------------------------------------------------------|
 | Files            | 990                                   | 254                                                                                        |
 | REIH size        | 404 bytes                             | 612 bytes                                                                                  |
-| Naming           | Descriptive (`walk.iff`, `crawl.iff`) | Numbered (`005_XX.iff`, 61 files) and first-person weapon (`fire_ak47_1st.iff`, 193 files) |
+| Naming           | Descriptive (`walk.iff`, `crawl.iff`) | Numbered (`005_XX.iff`, 61 files) + 193 first-person/misc files (189 `*_1st.iff` + 4 others) |
 | Root children    | 3 (spine + both legs)                 | 2                                                                                          |
 | Entry types used | `0x03`, `0x04`, `0x06`                | `0x01`, `0x04`, `0x07`                                                                     |
 | End effectors    | 5 (bones 18-20, 29-30)                | 10 (bones 37-46)                                                                           |
